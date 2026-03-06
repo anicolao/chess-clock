@@ -14,21 +14,7 @@ export default defineConfig({
         serviceWorkers: 'block',
         launchOptions: {
             executablePath: '/nix/store/dih9rf6gzzalx0arvgr5r1hgbs09w44i-chromium-145.0.7632.159/bin/chromium',
-            args: [
-                '--font-render-hinting=none',
-                '--disable-font-subpixel-positioning',
-                '--disable-lcd-text',
-                '--disable-skia-runtime-opts',
-                '--disable-system-font-check',
-                '--disable-features=FontAccess,WebRtcHideLocalIpsWithMdns',
-                '--force-device-scale-factor=1',
-                '--disable-accelerated-2d-canvas',
-                '--disable-gpu', // Use software rendering for consistency
-                '--use-gl=swiftshader',
-                '--disable-smooth-scrolling',
-                '--disable-partial-raster',
-                '--disable-partial-raster',
-            ],
+            args: ['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage'],
         },
         viewport: { width: 393, height: 852 },
         deviceScaleFactor: 1, // Enforce 1x for manageable screenshot sizes
