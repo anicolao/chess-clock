@@ -18,6 +18,7 @@
             nodePackages.typescript
             nodePackages.svelte-language-server
             playwright-driver.browsers
+            chromium
             gh
             git
           ];
