@@ -26,7 +26,7 @@ jobs:
       - name: Run Playwright tests
         run: |
           mkdir -p /tmp/empty_home
-          env -u XDG_DATA_DIRS -u XDG_CONFIG_DIRS HOME=/tmp/empty_home nix develop -c "npm run test:e2e"
+          env -u XDG_DATA_DIRS -u XDG_CONFIG_DIRS HOME=/tmp/empty_home nix develop -c npm run test:e2e
 
       - name: Upload test results
         if: always()
