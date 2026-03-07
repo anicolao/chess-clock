@@ -15,20 +15,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
         with:
-          node-version: '20'
-          cache: 'npm'
+          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
+        run: nix develop -c npm ci
 
       - name: Run Playwright tests
-        run: npm run test:e2e
+        run: nix develop -c npm run test:e2e
 
       - name: Upload test results
         if: always()

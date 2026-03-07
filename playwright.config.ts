@@ -13,7 +13,7 @@ export default defineConfig({
         contextOptions: { reducedMotion: 'reduce' },
         serviceWorkers: 'block',
         launchOptions: {
-            executablePath: '/nix/store/dih9rf6gzzalx0arvgr5r1hgbs09w44i-chromium-145.0.7632.159/bin/chromium',
+            executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
             args: ['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage'],
         },
         viewport: { width: 393, height: 852 },
@@ -28,7 +28,7 @@ export default defineConfig({
             use: {
                 // Ensure we use the global viewport settings by not overriding them with desktop defaults
                 browserName: 'chromium',
-                executablePath: '/nix/store/dih9rf6gzzalx0arvgr5r1hgbs09w44i-chromium-145.0.7632.159/bin/chromium',
+                executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
             },
         },
     ],
