@@ -1,0 +1,1 @@
+import{a as r,f as e}from"../chunks/Cwd2wJ2_.js";import"../chunks/DQY3haUt.js";import{n as m}from"../chunks/BlvCrj6X.js";var t=e("<h1>Chess Logger & Clock</h1> <p>Automatic chess game logger and clock using an IP camera.</p>",1);function c(o){var a=t();m(2),r(o,a)}export{c as component};
