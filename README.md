@@ -1,5 +1,7 @@
 # Chess Logger & Clock
 
+[![E2E Tests](https://github.com/anicolao/chess-clock/actions/workflows/e2e.yml/badge.svg)](https://github.com/anicolao/chess-clock/actions/workflows/e2e.yml)
+
 An automatic chess game logger and clock that uses an IP camera to detect moves and advance the clock.
 
 ![Baseline Screenshot](tests/e2e/screenshots/baseline.png)
