@@ -28,13 +28,16 @@ export default defineConfig({
                 '--disable-smooth-scrolling',
                 '--disable-partial-raster',
                 '--no-sandbox',
-                '--disable-dev-shm-usage'
+                '--disable-dev-shm-usage',
+                '--hide-scrollbars',
+                '--force-color-profile=srgb'
             ],
         },
         viewport: { width: 393, height: 852 },
         deviceScaleFactor: 1, // Enforce 1x for manageable screenshot sizes
         timezoneId: 'America/New_York',
         locale: 'en-CA', // Forces Date Input to ISO format (YYYY-MM-DD) which is more consistent across platforms than en-US
+        colorScheme: 'light',
     },
     snapshotPathTemplate: '{testDir}/{testFileDir}/screenshots/{arg}.png',
     projects: [
