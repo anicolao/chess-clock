@@ -13,8 +13,22 @@ export default defineConfig({
         contextOptions: { reducedMotion: 'reduce' },
         serviceWorkers: 'block',
         launchOptions: {
-            executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-            args: ['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage'],
+            args: [
+                '--font-render-hinting=none',
+                '--disable-font-subpixel-positioning',
+                '--disable-lcd-text',
+                '--disable-skia-runtime-opts',
+                '--disable-system-font-check',
+                '--disable-features=FontAccess,WebRtcHideLocalIpsWithMdns',
+                '--force-device-scale-factor=1',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu',
+                '--use-gl=swiftshader',
+                '--disable-smooth-scrolling',
+                '--disable-partial-raster',
+                '--no-sandbox',
+                '--disable-dev-shm-usage'
+            ],
         },
         viewport: { width: 393, height: 852 },
         deviceScaleFactor: 1, // Enforce 1x for manageable screenshot sizes
@@ -28,7 +42,6 @@ export default defineConfig({
             use: {
                 // Ensure we use the global viewport settings by not overriding them with desktop defaults
                 browserName: 'chromium',
-                executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
             },
         },
     ],
