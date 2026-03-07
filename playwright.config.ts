@@ -13,13 +13,31 @@ export default defineConfig({
         contextOptions: { reducedMotion: 'reduce' },
         serviceWorkers: 'block',
         launchOptions: {
-            executablePath: '/nix/store/dih9rf6gzzalx0arvgr5r1hgbs09w44i-chromium-145.0.7632.159/bin/chromium',
-            args: ['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage'],
+            executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+            args: [
+                '--font-render-hinting=none',
+                '--disable-font-subpixel-positioning',
+                '--disable-lcd-text',
+                '--disable-skia-runtime-opts',
+                '--disable-system-font-check',
+                '--disable-features=FontAccess,WebRtcHideLocalIpsWithMdns',
+                '--force-device-scale-factor=1',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu',
+                '--use-gl=swiftshader',
+                '--disable-smooth-scrolling',
+                '--disable-partial-raster',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--hide-scrollbars',
+                '--force-color-profile=srgb'
+            ],
         },
         viewport: { width: 393, height: 852 },
         deviceScaleFactor: 1, // Enforce 1x for manageable screenshot sizes
         timezoneId: 'America/New_York',
         locale: 'en-CA', // Forces Date Input to ISO format (YYYY-MM-DD) which is more consistent across platforms than en-US
+        colorScheme: 'light',
     },
     snapshotPathTemplate: '{testDir}/{testFileDir}/screenshots/{arg}.png',
     projects: [
@@ -28,7 +46,7 @@ export default defineConfig({
             use: {
                 // Ensure we use the global viewport settings by not overriding them with desktop defaults
                 browserName: 'chromium',
-                executablePath: '/nix/store/dih9rf6gzzalx0arvgr5r1hgbs09w44i-chromium-145.0.7632.159/bin/chromium',
+                executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
             },
         },
     ],
