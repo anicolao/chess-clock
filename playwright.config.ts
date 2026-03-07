@@ -13,6 +13,7 @@ export default defineConfig({
         contextOptions: { reducedMotion: 'reduce' },
         serviceWorkers: 'block',
         launchOptions: {
+            executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
             args: [
                 '--font-render-hinting=none',
                 '--disable-font-subpixel-positioning',
@@ -42,6 +43,7 @@ export default defineConfig({
             use: {
                 // Ensure we use the global viewport settings by not overriding them with desktop defaults
                 browserName: 'chromium',
+                executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
             },
         },
     ],
