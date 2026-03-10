@@ -95,6 +95,6 @@ export class TestStepHelper {
             content += `\n---\n\n`;
         }
 
-        fs.writeFileSync(docPath, content);
+        fs.appendFileSync(docPath, content);
     }
 }
