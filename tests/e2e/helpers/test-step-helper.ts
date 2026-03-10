@@ -67,7 +67,7 @@ export class TestStepHelper {
         // Programmatically validate the state/screenshot is not blank
         // A fully blank/white screenshot of 393x852 in PNG is usually around 2-3KB.
         const screenshotBuffer = await this.page.screenshot();
-        expect(screenshotBuffer.length).toBeGreaterThan(2000, 'Screenshot size is suspiciously small, suggesting a blank page');
+        expect(screenshotBuffer.length, 'Screenshot size is suspiciously small, suggesting a blank page').toBeGreaterThan(2000);
 
         // 4. Capture & Verify (Zero-Pixel Tolerance)
         // Check against the baseline in 'screenshots/{filename}'.
