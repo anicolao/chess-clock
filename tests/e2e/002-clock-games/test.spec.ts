@@ -1,7 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { TestStepHelper } from '../helpers/test-step-helper';
 
+import * as fs from 'fs';
+import * as path from 'path';
+
 test.describe('Chess Clock Games', () => {
+    test.describe.configure({ mode: 'serial' });
+
+    test.beforeAll(() => {
+        const docPath = path.join(process.cwd(), 'tests/e2e/002-clock-games/README.md');
+        if (fs.existsSync(docPath)) fs.unlinkSync(docPath);
+    });
     test.beforeEach(async ({ page }) => {
         await page.clock.pauseAt(new Date('2026-01-01T12:00:00.000Z'));
     });
@@ -80,6 +89,7 @@ test.describe('Chess Clock Games', () => {
             ],
             networkStatus: 'skip'
         });
+        helper.generateDocs();
     });
 
     test('Game with increment', async ({ page }, testInfo) => {
@@ -122,5 +132,6 @@ test.describe('Chess Clock Games', () => {
             ],
             networkStatus: 'skip'
         });
+        helper.generateDocs();
     });
 });
