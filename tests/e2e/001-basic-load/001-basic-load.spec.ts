@@ -14,7 +14,7 @@ test('Basic Loading', async ({ page }, testInfo) => {
             { 
                 spec: 'Title is correct', 
                 check: async () => { 
-                    await expect(page.locator('h1')).toHaveText('Chess Logger & Clock');
+                    await expect(page).toHaveTitle('Chess Clock');
                 } 
             }
         ]
