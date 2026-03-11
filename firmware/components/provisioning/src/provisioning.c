@@ -1,7 +1,11 @@
 #include "provisioning.h"
 #include <string.h>
 #include <stdio.h>
+#ifdef ESP_PLATFORM
+#include "cJSON.h"
+#else
 #include <cjson/cJSON.h>
+#endif
 #include "quirc.h"
 
 void prov_init(prov_ctx_t *ctx) {
