@@ -37,13 +37,13 @@ The Provisioning system will operate on the following state machine:
 
 To ensure high confidence before flashing to physical hardware, the implementation will strictly follow a simulation-first approach using QEMU and host-based testing. This allows us to validate the state machine, network logic, and pairing process without waiting on physical deployment loops.
 
-### Phase 1: Environment & Emulator Setup
+### Phase 1: Environment & Emulator Setup (Completed)
 1. **ESP-IDF Toolchain & QEMU Setup**: Ensure the Nix environment provides the complete ESP-IDF toolchain and QEMU compiled specifically for the ESP32-S3 architecture (`qemu-system-xtensa`).
 2. **Emulator Verification**: Compile a basic "Hello World" or blink application and execute it successfully in QEMU to validate the emulation pipeline.
 3. **Automated Test Runner**: Set up `pytest` alongside the `pytest-embedded` and `pytest-embedded-qemu` plugins to script and assert interactions with the simulated device via its serial port.
 
-### Phase 2: Core Provisioning Logic & Host Tests (In Progress)
-1. **QR Decoding (Completed)**: Integrate `quirc` for QR code detection and extraction from an image buffer.
+### Phase 2: Core Provisioning Logic & Host Tests (Completed)
+1. **QR Decoding**: Integrate `quirc` for QR code detection and extraction from an image buffer.
 2. **Payload Parsing**: Use a lightweight library (like ESP-IDF's included `cJSON`) to parse the `ssid`, `pass`, and `token` from the extracted QR payload.
 3. **State Machine**: Implement the `PROV_STATE_*` state machine logic.
 4. **Host Unit Tests**: Expand the existing host-based unit tests (`test_provisioning.cpp`) to comprehensively test payload parsing, valid/invalid state transitions, and error handling entirely decoupled from the ESP-IDF framework.
