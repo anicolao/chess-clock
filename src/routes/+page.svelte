@@ -8,6 +8,9 @@
   let activePlayer: 'white' | 'black' | null = $state(null);
   let gameState: 'idle' | 'running' | 'paused' | 'gameover' = $state('idle');
   let winner: 'white' | 'black' | null = $state(null);
+  let connectionStatus: 'offline' | 'synced' | 'error' = $state('offline');
+  let cameraUrl = $state('http://chesscam.local');
+  let connectionIntervalId: ReturnType<typeof setInterval> | null = null;
 
   let layoutMode: 'opposing' | 'edge' = $state('opposing');
 
@@ -29,6 +32,28 @@
     if (params.has('inc')) {
       increment = parseInt(params.get('inc')!, 10);
     }
+    
+    if (params.has('camera_url')) {
+      cameraUrl = params.get('camera_url')!;
+    }
+    
+    const checkConnection = async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const res = await fetch(`${cameraUrl}/api/status`, { signal: controller.signal }).catch(() => null);
+        clearTimeout(timeoutId);
+        if (res && res.ok) {
+          connectionStatus = 'synced';
+        } else {
+          connectionStatus = 'offline';
+        }
+      } catch (err) {
+        connectionStatus = 'offline';
+      }
+    };
+    checkConnection();
+    connectionIntervalId = setInterval(checkConnection, 3000);
   });
 
   function playWarning() {
@@ -138,6 +163,7 @@
 
   onDestroy(() => {
     if (timerId) clearInterval(timerId);
+    if (connectionIntervalId) clearInterval(connectionIntervalId);
   });
 </script>
 
@@ -163,6 +189,13 @@
     <a href="{base}/settings" class="btn icon-btn" data-testid="settings-link" aria-label="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
     </a>
+    <button class="btn icon-btn" data-status={connectionStatus} aria-label="Network Status" data-testid="network-status">
+      {#if connectionStatus === 'synced'}
+        <svg stroke="#4ade80" fill="none" viewBox="0 0 24 24" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+      {:else}
+        <svg stroke="#ef4444" fill="none" viewBox="0 0 24 24" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      {/if}
+    </button>
     <div class="visualizer" data-testid="visualizer">
       <div class="placeholder-board"></div>
     </div>
