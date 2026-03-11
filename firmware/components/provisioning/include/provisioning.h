@@ -2,6 +2,7 @@
 #define PROVISIONING_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef enum {
     PROV_STATE_UNPROVISIONED,
@@ -20,5 +21,6 @@ typedef struct {
 void prov_init(prov_ctx_t *ctx);
 bool prov_parse_qr_payload(prov_ctx_t *ctx, const char *json_payload);
 prov_state_t prov_get_state(const prov_ctx_t *ctx);
+bool prov_decode_qr_image(prov_ctx_t *ctx, const uint8_t *image_data, int width, int height);
 
 #endif

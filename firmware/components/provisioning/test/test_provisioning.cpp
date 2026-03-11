@@ -61,3 +61,25 @@ TEST_CASE("Get State Helper", "[provisioning]") {
     REQUIRE(prov_get_state(&ctx) == PROV_STATE_UNPROVISIONED);
     REQUIRE(prov_get_state(NULL) == PROV_STATE_ERROR);
 }
+
+#include "qr_test_image.h"
+#include <iostream>
+
+TEST_CASE("Successful QR Decoding from Image", "[provisioning]") {
+    prov_ctx_t ctx;
+    prov_init(&ctx);
+
+    bool success = prov_decode_qr_image(&ctx, qr_test_image, qr_test_image_width, qr_test_image_height);
+
+    if (!success) {
+        std::cout << "QR decoding failed" << std::endl;
+    } else {
+        std::cout << "QR decoded! SSID: " << ctx.ssid << ", Pass: " << ctx.password << ", Token: " << ctx.token << std::endl;
+    }
+
+    REQUIRE(success == true);
+    REQUIRE(ctx.state == PROV_STATE_CONNECTED);
+    REQUIRE(strcmp(ctx.ssid, "MyTestWiFi") == 0);
+    REQUIRE(strcmp(ctx.password, "SuperSecret123") == 0);
+    REQUIRE(strlen(ctx.token) > 0);
+}

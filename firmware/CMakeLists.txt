@@ -9,4 +9,5 @@ find_package(cJSON REQUIRED)
 # Find Catch2
 find_package(Catch2 3 REQUIRED)
 
+add_subdirectory(components/quirc)
 add_subdirectory(components/provisioning)
