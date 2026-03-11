@@ -16,8 +16,8 @@ This document specifies the Minimum Viable Product (MVP) design for provisioning
 ### 3.1. Payload Specification
 The QR code will contain a JSON payload encoded as a minimal string to reduce QR code density.
 Example:
-`{"s":"MyWiFi","p":"MyPassword","t":"abc123xyz"}`
-Where `s` is SSID, `p` is Password, and `t` is a randomly generated Pairing Token.
+`{"ssid":"MyNetwork","pass":"Secret123","token":"abc123xyz"}`
+Where `ssid` is SSID, `pass` is Password, and `token` is a randomly generated Pairing Token.
 
 ### 3.2. State Machine
 The Provisioning system will operate on the following state machine:
