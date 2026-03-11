@@ -14,7 +14,21 @@ This document specifies the Minimum Viable Product (MVP) design for provisioning
 ## 3. Technical Architecture
 
 ### 3.1. Payload Specification
-The QR code will contain a JSON payload to ensure extensibility, encoded as a minimal string to reduce QR code density and improve scanning reliability on the OV2640 sensor.
+The QR code will contain a JSON payload encoded as a minimal string to reduce QR code density.
+Example:
+`{"s":"MyWiFi","p":"MyPassword","t":"abc123xyz"}`
+Where `s` is SSID, `p` is Password, and `t` is a randomly generated Pairing Token.
 
-Example payload:
-echo "COMMAND_ENDED_EOC"
+### 3.2. State Machine
+The Provisioning system will operate on the following state machine:
+- `PROV_STATE_UNPROVISIONED`: Initial state. Waiting for QR payload.
+- `PROV_STATE_PROVISIONING`: Parsing payload, attempting Wi-Fi connection.
+- `PROV_STATE_PROVISIONED`: Wi-Fi connected, NVS updated, mDNS announced.
+- `PROV_STATE_ERROR_PAYLOAD`: Invalid or unreadable payload.
+- `PROV_STATE_ERROR_WIFI`: Failed to connect to Wi-Fi.
+- `PROV_STATE_ERROR_NVS`: Failed to save credentials to Non-Volatile Storage.
+- `PROV_STATE_ERROR_MDNS`: Failed to announce via mDNS.
+
+### 3.3. Security
+- Credentials and the pairing token will be stored in the ESP32's NVS (Non-Volatile Storage).
+- The pairing token acts as a shared secret between the specific browser session and the camera, ensuring that only the user who provided the credentials can pair with the camera, mitigating rogue camera connections on shared networks.
