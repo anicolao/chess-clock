@@ -10,6 +10,18 @@ void prov_init(prov_ctx_t *ctx) {
     ctx->state = PROV_STATE_UNPROVISIONED;
 }
 
+void prov_set_wifi_connect_cb(prov_ctx_t *ctx, bool (*cb)(const char*, const char*)) {
+    if (ctx) ctx->wifi_connect = cb;
+}
+
+void prov_set_credentials_save_cb(prov_ctx_t *ctx, bool (*cb)(const char*, const char*, const char*)) {
+    if (ctx) ctx->credentials_save = cb;
+}
+
+void prov_set_mdns_announce_cb(prov_ctx_t *ctx, bool (*cb)(void)) {
+    if (ctx) ctx->mdns_announce = cb;
+}
+
 bool prov_parse_qr_payload(prov_ctx_t *ctx, const char *json_payload) {
     if (!ctx || !json_payload) {
         if (ctx) ctx->state = PROV_STATE_ERROR;
@@ -41,6 +53,24 @@ bool prov_parse_qr_payload(prov_ctx_t *ctx, const char *json_payload) {
         
         strncpy(ctx->token, token->valuestring, sizeof(ctx->token) - 1);
         ctx->token[sizeof(ctx->token) - 1] = '\0';
+
+        if (ctx->wifi_connect && !ctx->wifi_connect(ctx->ssid, ctx->password)) {
+            ctx->state = PROV_STATE_ERROR;
+            cJSON_Delete(json);
+            return false;
+        }
+
+        if (ctx->credentials_save && !ctx->credentials_save(ctx->ssid, ctx->password, ctx->token)) {
+            ctx->state = PROV_STATE_ERROR;
+            cJSON_Delete(json);
+            return false;
+        }
+
+        if (ctx->mdns_announce && !ctx->mdns_announce()) {
+            ctx->state = PROV_STATE_ERROR;
+            cJSON_Delete(json);
+            return false;
+        }
 
         ctx->state = PROV_STATE_CONNECTED;
         success = true;

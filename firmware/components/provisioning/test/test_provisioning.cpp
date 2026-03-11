@@ -8,6 +8,28 @@ TEST_CASE("Provisioning Context Initialization", "[provisioning]") {
     prov_ctx_t ctx;
     prov_init(&ctx);
     REQUIRE(ctx.state == PROV_STATE_UNPROVISIONED);
+    REQUIRE(ctx.wifi_connect == NULL);
+    REQUIRE(ctx.credentials_save == NULL);
+    REQUIRE(ctx.mdns_announce == NULL);
+}
+
+static int wifi_connect_calls = 0;
+static int credentials_save_calls = 0;
+static int mdns_announce_calls = 0;
+
+static bool mock_wifi_connect(const char* ssid, const char* pass) {
+    wifi_connect_calls++;
+    return true;
+}
+
+static bool mock_credentials_save(const char* ssid, const char* pass, const char* token) {
+    credentials_save_calls++;
+    return true;
+}
+
+static bool mock_mdns_announce(void) {
+    mdns_announce_calls++;
+    return true;
 }
 
 TEST_CASE("Successful QR Payload Parsing", "[provisioning]") {
@@ -22,6 +44,42 @@ TEST_CASE("Successful QR Payload Parsing", "[provisioning]") {
     REQUIRE(strcmp(ctx.ssid, "MyNetwork") == 0);
     REQUIRE(strcmp(ctx.password, "Secret123") == 0);
     REQUIRE(strcmp(ctx.token, "abc123xyz") == 0);
+}
+
+TEST_CASE("Successful QR Payload Parsing with Callbacks", "[provisioning]") {
+    prov_ctx_t ctx;
+    prov_init(&ctx);
+
+    wifi_connect_calls = 0;
+    credentials_save_calls = 0;
+    mdns_announce_calls = 0;
+
+    prov_set_wifi_connect_cb(&ctx, mock_wifi_connect);
+    prov_set_credentials_save_cb(&ctx, mock_credentials_save);
+    prov_set_mdns_announce_cb(&ctx, mock_mdns_announce);
+
+    const char* valid_json = "{\"ssid\":\"MyNetwork\",\"pass\":\"Secret123\",\"token\":\"abc123xyz\"}";
+    bool success = prov_parse_qr_payload(&ctx, valid_json);
+
+    REQUIRE(success == true);
+    REQUIRE(ctx.state == PROV_STATE_CONNECTED);
+    REQUIRE(wifi_connect_calls == 1);
+    REQUIRE(credentials_save_calls == 1);
+    REQUIRE(mdns_announce_calls == 1);
+}
+
+TEST_CASE("Failed Callback Propagation", "[provisioning]") {
+    prov_ctx_t ctx;
+    prov_init(&ctx);
+
+    auto mock_fail = [](const char* s, const char* p) -> bool { return false; };
+    prov_set_wifi_connect_cb(&ctx, mock_fail);
+
+    const char* valid_json = "{\"ssid\":\"MyNetwork\",\"pass\":\"Secret123\",\"token\":\"abc123xyz\"}";
+    bool success = prov_parse_qr_payload(&ctx, valid_json);
+
+    REQUIRE(success == false);
+    REQUIRE(ctx.state == PROV_STATE_ERROR);
 }
 
 TEST_CASE("Failed QR Payload Parsing - Invalid JSON", "[provisioning]") {
