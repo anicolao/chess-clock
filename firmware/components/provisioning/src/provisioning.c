@@ -1,6 +1,8 @@
 #include "provisioning.h"
 #include <string.h>
+#include <stdio.h>
 #include <cjson/cJSON.h>
+#include "quirc.h"
 
 void prov_init(prov_ctx_t *ctx) {
     if (!ctx) return;
@@ -53,4 +55,40 @@ bool prov_parse_qr_payload(prov_ctx_t *ctx, const char *json_payload) {
 prov_state_t prov_get_state(const prov_ctx_t *ctx) {
     if (!ctx) return PROV_STATE_ERROR;
     return ctx->state;
+}
+
+bool prov_decode_qr_image(prov_ctx_t *ctx, const uint8_t *image_data, int width, int height) {
+    if (!ctx || !image_data) return false;
+
+    struct quirc *q = quirc_new();
+    if (!q) return false;
+
+    if (quirc_resize(q, width, height) < 0) {
+        quirc_destroy(q);
+        return false;
+    }
+
+    int w, h;
+    uint8_t *q_image = quirc_begin(q, &w, &h);
+    memcpy(q_image, image_data, w * h);
+    quirc_end(q);
+
+    int num_codes = quirc_count(q);
+    for (int i = 0; i < num_codes; i++) {
+        struct quirc_code code;
+        struct quirc_data data;
+
+        quirc_extract(q, i, &code);
+
+        quirc_decode_error_t err = quirc_decode(&code, &data);
+        if (err == 0) {
+            bool success = prov_parse_qr_payload(ctx, (const char *)data.payload);
+            quirc_destroy(q);
+            return success;
+        } else {
+        }
+    }
+
+    quirc_destroy(q);
+    return false;
 }

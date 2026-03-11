@@ -1,9 +1,10 @@
 add_library(provisioning src/provisioning.c)
-target_include_directories(provisioning PUBLIC include)
-target_link_libraries(provisioning PRIVATE cjson)
+target_include_directories(provisioning PUBLIC include ../quirc)
+target_link_libraries(provisioning PRIVATE cjson quirc)
 
 add_executable(test_provisioning test/test_provisioning.cpp)
-target_link_libraries(test_provisioning PRIVATE provisioning Catch2::Catch2WithMain cjson)
+target_include_directories(test_provisioning PRIVATE test)
+target_link_libraries(test_provisioning PRIVATE provisioning Catch2::Catch2WithMain cjson quirc)
 
 include(CTest)
 include(Catch)

@@ -39,6 +39,8 @@
             ninja
             catch2_3
             cjson
+            imagemagick
+            wget
           ];
 
           shellHook = ''
