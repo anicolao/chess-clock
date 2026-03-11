@@ -40,7 +40,7 @@ TEST_CASE("Successful QR Payload Parsing", "[provisioning]") {
     bool success = prov_parse_qr_payload(&ctx, valid_json);
 
     REQUIRE(success == true);
-    REQUIRE(ctx.state == PROV_STATE_CONNECTED);
+    REQUIRE(ctx.state == PROV_STATE_PROVISIONED);
     REQUIRE(strcmp(ctx.ssid, "MyNetwork") == 0);
     REQUIRE(strcmp(ctx.password, "Secret123") == 0);
     REQUIRE(strcmp(ctx.token, "abc123xyz") == 0);
@@ -62,13 +62,13 @@ TEST_CASE("Successful QR Payload Parsing with Callbacks", "[provisioning]") {
     bool success = prov_parse_qr_payload(&ctx, valid_json);
 
     REQUIRE(success == true);
-    REQUIRE(ctx.state == PROV_STATE_CONNECTED);
+    REQUIRE(ctx.state == PROV_STATE_PROVISIONED);
     REQUIRE(wifi_connect_calls == 1);
     REQUIRE(credentials_save_calls == 1);
     REQUIRE(mdns_announce_calls == 1);
 }
 
-TEST_CASE("Failed Callback Propagation", "[provisioning]") {
+TEST_CASE("Failed Callback Propagation - WiFi", "[provisioning]") {
     prov_ctx_t ctx;
     prov_init(&ctx);
 
@@ -79,7 +79,36 @@ TEST_CASE("Failed Callback Propagation", "[provisioning]") {
     bool success = prov_parse_qr_payload(&ctx, valid_json);
 
     REQUIRE(success == false);
-    REQUIRE(ctx.state == PROV_STATE_ERROR);
+    REQUIRE(ctx.state == PROV_STATE_ERROR_WIFI);
+}
+
+TEST_CASE("Failed Callback Propagation - NVS", "[provisioning]") {
+    prov_ctx_t ctx;
+    prov_init(&ctx);
+
+    prov_set_wifi_connect_cb(&ctx, [](const char*, const char*) { return true; });
+    prov_set_credentials_save_cb(&ctx, [](const char*, const char*, const char*) { return false; });
+
+    const char* valid_json = "{\"ssid\":\"MyNetwork\",\"pass\":\"Secret123\",\"token\":\"abc123xyz\"}";
+    bool success = prov_parse_qr_payload(&ctx, valid_json);
+
+    REQUIRE(success == false);
+    REQUIRE(ctx.state == PROV_STATE_ERROR_NVS);
+}
+
+TEST_CASE("Failed Callback Propagation - mDNS", "[provisioning]") {
+    prov_ctx_t ctx;
+    prov_init(&ctx);
+
+    prov_set_wifi_connect_cb(&ctx, [](const char*, const char*) { return true; });
+    prov_set_credentials_save_cb(&ctx, [](const char*, const char*, const char*) { return true; });
+    prov_set_mdns_announce_cb(&ctx, []() { return false; });
+
+    const char* valid_json = "{\"ssid\":\"MyNetwork\",\"pass\":\"Secret123\",\"token\":\"abc123xyz\"}";
+    bool success = prov_parse_qr_payload(&ctx, valid_json);
+
+    REQUIRE(success == false);
+    REQUIRE(ctx.state == PROV_STATE_ERROR_MDNS);
 }
 
 TEST_CASE("Failed QR Payload Parsing - Invalid JSON", "[provisioning]") {
@@ -90,7 +119,7 @@ TEST_CASE("Failed QR Payload Parsing - Invalid JSON", "[provisioning]") {
     bool success = prov_parse_qr_payload(&ctx, invalid_json);
 
     REQUIRE(success == false);
-    REQUIRE(ctx.state == PROV_STATE_ERROR);
+    REQUIRE(ctx.state == PROV_STATE_ERROR_PAYLOAD);
 }
 
 TEST_CASE("Failed QR Payload Parsing - Missing Fields", "[provisioning]") {
@@ -101,7 +130,7 @@ TEST_CASE("Failed QR Payload Parsing - Missing Fields", "[provisioning]") {
     bool success = prov_parse_qr_payload(&ctx, missing_json);
 
     REQUIRE(success == false);
-    REQUIRE(ctx.state == PROV_STATE_ERROR);
+    REQUIRE(ctx.state == PROV_STATE_ERROR_PAYLOAD);
 }
 
 TEST_CASE("Edge Cases - Null Pointers", "[provisioning]") {
@@ -110,7 +139,7 @@ TEST_CASE("Edge Cases - Null Pointers", "[provisioning]") {
 
     REQUIRE(prov_parse_qr_payload(NULL, "{}") == false);
     REQUIRE(prov_parse_qr_payload(&ctx, NULL) == false);
-    REQUIRE(ctx.state == PROV_STATE_ERROR);
+    REQUIRE(ctx.state == PROV_STATE_ERROR_PAYLOAD);
 }
 
 TEST_CASE("Get State Helper", "[provisioning]") {
@@ -136,7 +165,7 @@ TEST_CASE("Successful QR Decoding from Image", "[provisioning]") {
     }
 
     REQUIRE(success == true);
-    REQUIRE(ctx.state == PROV_STATE_CONNECTED);
+    REQUIRE(ctx.state == PROV_STATE_PROVISIONED);
     REQUIRE(strcmp(ctx.ssid, "MyTestWiFi") == 0);
     REQUIRE(strcmp(ctx.password, "SuperSecret123") == 0);
     REQUIRE(strlen(ctx.token) > 0);
