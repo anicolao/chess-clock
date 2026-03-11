@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/project/firmware/build/cmake_install.cmake",
-		"/project/firmware/build/components/provisioning/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
