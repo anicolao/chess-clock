@@ -2,9 +2,9 @@ name: Firmware Tests
 
 on:
   push:
-    branches: [main, design-esp32-camera-testing]
+    branches: [main]
   pull_request:
-    branches: [main, design-esp32-camera-testing]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
