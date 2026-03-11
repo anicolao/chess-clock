@@ -1,0 +1,7 @@
+Successful QR Payload Parsing 1 0.00111364
+Failed QR Payload Parsing - Invalid JSON 1 0.000730385
+Failed QR Payload Parsing - Missing Fields 1 0.000693426
+Provisioning Context Initialization 1 0.00070851
+Get State Helper 1 0.000825094
+Edge Cases - Null Pointers 1 0.00073326
+---
