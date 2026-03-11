@@ -52,8 +52,8 @@ The goal is to provide clear, actionable interface specifications and missing mo
 This spec defines the foundational views needed to unblock front-end component creation in Svelte.
 
 - **Target Files to Create/Update:**
-  - `docs/designs/pwa-ux-spec.md` (Main markdown design document housing this spec)
-  - `docs/designs/assets/pwa-main-match-view.png` (Source-of-truth mockup asset representing the active match state)
+  - `docs/ux/pwa-ux-spec.md` (Main markdown design document housing this spec)
+  - `docs/ux/assets/pwa-main-match-view.png` (Source-of-truth mockup asset representing the active match state)
 
 - **Suggested Svelte Components (Mental Model):**
   - `<AppShell />`: Handles responsive routing and layout switching between portrait/landscape.
@@ -107,8 +107,8 @@ This spec defines the foundational views needed to unblock front-end component c
       "MoveLog"
     ],
     "files": [
-      "docs/designs/pwa-ux-spec.md",
-      "docs/designs/assets/pwa-main-match-view.png"
+      "docs/ux/pwa-ux-spec.md",
+      "docs/ux/assets/pwa-main-match-view.png"
     ],
     "acceptance_checks": [
       "Layout responds correctly between portrait (stacked) and landscape (side-by-side) modes",
@@ -122,8 +122,8 @@ This spec defines the foundational views needed to unblock front-end component c
 
 ## Declared Deliverables
 
-- docs/designs/pwa-ux-spec.md
-- docs/designs/assets/pwa-main-match-view.png
+- docs/ux/pwa-ux-spec.md
+- docs/ux/assets/pwa-main-match-view.png
 
 ## Mockups
 

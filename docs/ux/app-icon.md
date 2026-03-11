@@ -35,7 +35,7 @@ To implement the app icon package, we will establish a high-resolution source-of
 
 **Assets to create/update:**
 1.  `static/icon-512.png` (Source of truth asset, flat vector style)
-2.  `docs/design/app-icon.md` (Design documentation and export specs)
+2.  `docs/ux/app-icon.md` (Design documentation and export specs)
 3.  `static/manifest.json` (Web app manifest referencing the new icon)
 
 *(Note: The build pipeline or a manual export step will later derive the 16x16, 32x32, 192x192, and apple-touch-icon sizes from the 512x512 source).*
@@ -68,7 +68,7 @@ To implement the app icon package, we will establish a high-resolution source-of
   "implementation_handoff": {
     "components": ["Web Manifest", "App Shell <head> tags"],
     "files": [
-      "docs/design/app-icon.md",
+      "docs/ux/app-icon.md",
       "static/icon-512.png",
       "static/manifest.json"
     ],
@@ -83,7 +83,7 @@ To implement the app icon package, we will establish a high-resolution source-of
 
 ## Declared Deliverables
 
-- docs/design/app-icon.md
+- docs/ux/app-icon.md
 - static/icon-512.png
 - static/manifest.json
 

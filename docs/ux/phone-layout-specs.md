@@ -86,8 +86,8 @@ The chess logger interface is designed for a mobile-first web experience where t
       "src/lib/components/Visualizer.svelte"
     ],
     "files": [
-      "docs/design/phone-layout-specs.md",
-      "docs/design/mockups/phone-layout-mockup.png"
+      "docs/ux/phone-layout-specs.md",
+      "docs/ux/mockups/phone-layout-mockup.png"
     ],
     "acceptance_checks": [
       "CSS layout correctly applies standard opposing clocks",
@@ -101,8 +101,8 @@ The chess logger interface is designed for a mobile-first web experience where t
 
 ## Declared Deliverables
 
-- docs/design/phone-layout-specs.md
-- docs/design/mockups/phone-layout-mockup.png
+- docs/ux/phone-layout-specs.md
+- docs/ux/mockups/phone-layout-mockup.png
 
 ## Mockups
 
