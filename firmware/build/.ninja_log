@@ -1,0 +1,7 @@
+# ninja log v7
+0	30	1773244534594147802	components/provisioning/CMakeFiles/provisioning.dir/src/provisioning.c.o	a8664896a01ad935
+30	36	1773244534624148208	components/provisioning/libprovisioning.a	998387b41d6ee04f
+0	270	1773244534594147802	components/provisioning/CMakeFiles/test_provisioning.dir/test/test_provisioning.cpp.o	8737e534564e3284
+270	332	1773244534926152294	components/provisioning/test_provisioning	ec3b0676887d3810
+270	332	1773244534926152294	components/provisioning/test_provisioning-b12d07c_tests.cmake	ec3b0676887d3810
+270	332	1773244534926152294	/project/firmware/build/components/provisioning/test_provisioning-b12d07c_tests.cmake	ec3b0676887d3810

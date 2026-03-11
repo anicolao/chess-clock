@@ -1,0 +1,123 @@
+Start testing: Mar 11 15:55 UTC
+----------------------------------------------------------
+1/6 Testing: Successful QR Payload Parsing
+1/6 Test: Successful QR Payload Parsing
+Command: "/project/firmware/build/components/provisioning/test_provisioning" "Successful QR Payload Parsing"
+Directory: /project/firmware/build/components/provisioning
+"Successful QR Payload Parsing" start time: Mar 11 15:55 UTC
+Output:
+----------------------------------------------------------
+Filters: "Successful QR Payload Parsing"
+Randomness seeded to: 1005834801
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"Successful QR Payload Parsing" end time: Mar 11 15:55 UTC
+"Successful QR Payload Parsing" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/6 Testing: Failed QR Payload Parsing - Invalid JSON
+2/6 Test: Failed QR Payload Parsing - Invalid JSON
+Command: "/project/firmware/build/components/provisioning/test_provisioning" "Failed QR Payload Parsing - Invalid JSON"
+Directory: /project/firmware/build/components/provisioning
+"Failed QR Payload Parsing - Invalid JSON" start time: Mar 11 15:55 UTC
+Output:
+----------------------------------------------------------
+Filters: "Failed QR Payload Parsing - Invalid JSON"
+Randomness seeded to: 2879872734
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"Failed QR Payload Parsing - Invalid JSON" end time: Mar 11 15:55 UTC
+"Failed QR Payload Parsing - Invalid JSON" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/6 Testing: Failed QR Payload Parsing - Missing Fields
+3/6 Test: Failed QR Payload Parsing - Missing Fields
+Command: "/project/firmware/build/components/provisioning/test_provisioning" "Failed QR Payload Parsing - Missing Fields"
+Directory: /project/firmware/build/components/provisioning
+"Failed QR Payload Parsing - Missing Fields" start time: Mar 11 15:55 UTC
+Output:
+----------------------------------------------------------
+Filters: "Failed QR Payload Parsing - Missing Fields"
+Randomness seeded to: 756448078
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"Failed QR Payload Parsing - Missing Fields" end time: Mar 11 15:55 UTC
+"Failed QR Payload Parsing - Missing Fields" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/6 Testing: Provisioning Context Initialization
+4/6 Test: Provisioning Context Initialization
+Command: "/project/firmware/build/components/provisioning/test_provisioning" "Provisioning Context Initialization"
+Directory: /project/firmware/build/components/provisioning
+"Provisioning Context Initialization" start time: Mar 11 15:55 UTC
+Output:
+----------------------------------------------------------
+Filters: "Provisioning Context Initialization"
+Randomness seeded to: 1294091863
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"Provisioning Context Initialization" end time: Mar 11 15:55 UTC
+"Provisioning Context Initialization" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/6 Testing: Get State Helper
+5/6 Test: Get State Helper
+Command: "/project/firmware/build/components/provisioning/test_provisioning" "Get State Helper"
+Directory: /project/firmware/build/components/provisioning
+"Get State Helper" start time: Mar 11 15:55 UTC
+Output:
+----------------------------------------------------------
+Filters: "Get State Helper"
+Randomness seeded to: 388182836
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"Get State Helper" end time: Mar 11 15:55 UTC
+"Get State Helper" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/6 Testing: Edge Cases - Null Pointers
+6/6 Test: Edge Cases - Null Pointers
+Command: "/project/firmware/build/components/provisioning/test_provisioning" "Edge Cases - Null Pointers"
+Directory: /project/firmware/build/components/provisioning
+"Edge Cases - Null Pointers" start time: Mar 11 15:55 UTC
+Output:
+----------------------------------------------------------
+Filters: "Edge Cases - Null Pointers"
+Randomness seeded to: 796258296
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"Edge Cases - Null Pointers" end time: Mar 11 15:55 UTC
+"Edge Cases - Null Pointers" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Mar 11 15:55 UTC

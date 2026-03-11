@@ -1,0 +1,5 @@
+if(EXISTS "/project/firmware/build/components/provisioning/test_provisioning-b12d07c_tests.cmake")
+  include("/project/firmware/build/components/provisioning/test_provisioning-b12d07c_tests.cmake")
+else()
+  add_test(test_provisioning_NOT_BUILT-b12d07c test_provisioning_NOT_BUILT-b12d07c)
+endif()

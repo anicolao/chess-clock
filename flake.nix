@@ -32,6 +32,13 @@
             git
             fontconfig
             dejavu_fonts
+            
+            # C/C++ Firmware Host-Testing tools
+            gcc
+            cmake
+            ninja
+            catch2_3
+            cjson
           ];
 
           shellHook = ''
