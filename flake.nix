@@ -96,28 +96,16 @@
               echo "Creating python venv at $VENV_DIR"
               python3 -m venv "$VENV_DIR"
               source "$VENV_DIR/bin/activate"
-              pip install pytest pytest-embedded pytest-embedded-idf pytest-embedded-qemu
+              pip install pytest pytest-embedded pytest-embedded-idf pytest-embedded-qemu pytest-embedded-serial pytest-embedded-serial-esp qrcode pillow
             else
               source "$VENV_DIR/bin/activate"
             fi
 
-            # Wrapper to fix `esptool.py merge-bin` vs `merge_bin` for pytest-embedded
-            mkdir -p "$VENV_DIR/esptool-wrapper"
-            cat << 'INNER_EOF' > "$VENV_DIR/esptool-wrapper/esptool.py"
-#!/usr/bin/env bash
-REAL_ESPTOOL=$(which -a esptool.py | grep -v 'esptool-wrapper' | head -n 1)
-args=()
-for arg in "$@"; do
-  if [ "$arg" = "merge-bin" ]; then
-    args+=("merge_bin")
-  else
-    args+=("$arg")
-  fi
-done
-exec "$REAL_ESPTOOL" "''${args[@]}"
-INNER_EOF
-            chmod +x "$VENV_DIR/esptool-wrapper/esptool.py"
-            export PATH="$VENV_DIR/esptool-wrapper:$PATH"
+            # Patch pytest_embedded_qemu for esptool.py syntax change (merge-bin -> merge_bin)
+            QEMU_APP_PY=$(find "$VENV_DIR" -path "*/pytest_embedded_qemu/app.py" 2>/dev/null | head -n 1)
+            if [ -n "$QEMU_APP_PY" ]; then
+              sed -i 's/merge-bin/merge_bin/g' "$QEMU_APP_PY"
+            fi
           '';
         };
       }
