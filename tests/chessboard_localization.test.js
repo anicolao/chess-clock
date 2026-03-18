@@ -3,8 +3,8 @@ import path from 'path';
 import cv from '@techstark/opencv-js';
 import { Jimp } from 'jimp';
 
-const inputDir = 'tests/images';
-const outputDir = 'tests/images/out';
+const inputBaseDir = 'tests/images';
+const outputBaseDir = 'tests/images/out';
 const reportFile = 'tests/board_localization_report.md';
 
 function distance(p1, p2) {
@@ -36,7 +36,6 @@ function evaluateGridCorners(gray, corners, cols, rows) {
 
     for (let x = 0; x < 8; x++) {
         for (let y = 0; y < 8; y++) {
-            // Sample a 3x3 grid within each square to get a more robust average
             for (let dx = 0.25; dx <= 0.75; dx += 0.25) {
                 for (let dy = 0.25; dy <= 0.75; dy += 0.25) {
                     let cx = x + dx;
@@ -119,11 +118,10 @@ function findBoardQuad(src, gray, contours, imageArea) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt, false);
         
-        // Look for squares that could be a single chessboard tile
         if (area > imageArea * 0.0005 && area < imageArea * 0.1) {
             let tmp = new cv.Mat();
             let perimeter = cv.arcLength(cnt, true);
-            cv.approxPolyDP(cnt, tmp, 0.05 * perimeter, true);
+            cv.approxPolyDP(cnt, tmp, 0.03 * perimeter, true);
             
             if (tmp.rows === 4 && cv.isContourConvex(tmp)) {
                 let pts = [];
@@ -145,16 +143,14 @@ function findBoardQuad(src, gray, contours, imageArea) {
         }
     }
     
-    // Start with candidate squares nearest to the center of the image
     quads.sort((a, b) => distance(a.center, imageCenter) - distance(b.center, imageCenter));
     
     let bestInitialCorners = null;
     let maxInitialScore = -1;
 
-    for (let q = 0; q < Math.min(quads.length, 50); q++) {
+    for (let q = 0; q < Math.min(quads.length, 100); q++) {
         let quad = quads[q];
         
-        // Map [0,0] to [1,1] coordinates to the detected quad
         let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, 1, 0, 1, 1, 0, 1]);
         let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
             quad.pts[0].x, quad.pts[0].y,
@@ -164,10 +160,8 @@ function findBoardQuad(src, gray, contours, imageArea) {
         ]);
         let transform = cv.getPerspectiveTransform(srcTri, dstTri);
 
-        // Assume this quad is a square on the 8x8 board, test all possible [offsetX, offsetY] positions
         for (let offsetX = 0; offsetX < 8; offsetX++) {
             for (let offsetY = 0; offsetY < 8; offsetY++) {
-                // Calculate the 4 corners of the 8x8 grid given this offset
                 let bounds = [
                     {x: -offsetX, y: -offsetY},
                     {x: 8 - offsetX, y: -offsetY},
@@ -184,7 +178,6 @@ function findBoardQuad(src, gray, contours, imageArea) {
                     ptMat.delete(); dstMat.delete();
                 }
                 
-                // Score the checkerboard pattern (alternating light and dark)
                 let score = evaluateGridCorners(gray, boundPts, src.cols, src.rows);
                 if (score > maxInitialScore && score > 30) {
                     maxInitialScore = score;
@@ -193,24 +186,26 @@ function findBoardQuad(src, gray, contours, imageArea) {
             }
         }
         srcTri.delete(); dstTri.delete(); transform.delete();
-        
-        // If we found a very strong checkerboard pattern, early out
         if (maxInitialScore > 80) break;
     }
 
     if (bestInitialCorners) {
-        // Finely adjust the 4 corners to maximize the checkerboard contrast, essentially snapping it perfectly to the board edges
         return optimizeCorners(gray, bestInitialCorners, src.cols, src.rows);
     }
     
     return null;
 }
 
-async function processImage(filename) {
-    const inputPath = path.join(inputDir, filename);
-    const outputPath = path.join(outputDir, filename);
+async function processImage(relativePath) {
+    const inputPath = path.join(inputBaseDir, relativePath);
+    const outputPath = path.join(outputBaseDir, relativePath);
     
-    console.log(`Processing ${filename}...`);
+    const outputDir = path.dirname(outputPath);
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    console.log(`Processing ${relativePath}...`);
     const image = await Jimp.read(inputPath);
     
     let src = new cv.Mat(image.bitmap.height, image.bitmap.width, cv.CV_8UC4);
@@ -238,18 +233,15 @@ async function processImage(filename) {
     let quadPts = findBoardQuad(src, gray, contours, imageArea);
     
     if (quadPts) {
-        // Draw the quadrilateral
         for (let i = 0; i < 4; i++) {
             let pt1 = new cv.Point(quadPts[i].x, quadPts[i].y);
             let pt2 = new cv.Point(quadPts[(i + 1) % 4].x, quadPts[(i + 1) % 4].y);
-            // Draw a thick green line connecting the points
             cv.line(src, pt1, pt2, new cv.Scalar(0, 255, 0, 255), 5);
         }
     } else {
-        console.log(`Could not find a valid 8x8 chessboard pattern bounding box in ${filename}`);
+        console.log(`Could not find a valid 8x8 chessboard pattern bounding box in ${relativePath}`);
     }
     
-    // Copy data back to Jimp
     image.bitmap.data.set(src.data);
     await image.write(outputPath);
     
@@ -257,12 +249,29 @@ async function processImage(filename) {
     contours.delete(); hierarchy.delete();
 }
 
+function getAllFiles(dirPath, arrayOfFiles) {
+    const files = fs.readdirSync(dirPath);
+    arrayOfFiles = arrayOfFiles || [];
+
+    files.forEach(function(file) {
+        if (fs.statSync(dirPath + "/" + file).isDirectory()) {
+            if (file !== 'out' && file !== '8col' && file !== 'empty') {
+                arrayOfFiles = getAllFiles(dirPath + "/" + file, arrayOfFiles);
+            }
+        } else {
+            if (file.endsWith(".jpg") || file.endsWith(".png")) {
+                arrayOfFiles.push(path.join(dirPath, "/", file));
+            }
+        }
+    });
+
+    return arrayOfFiles;
+}
+
 cv.onRuntimeInitialized = async () => {
     try {
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
-        const files = fs.readdirSync(inputDir).filter(f => f.endsWith('.jpg') || f.endsWith('.png'));
+        const allFiles = getAllFiles(inputBaseDir);
+        const relativeFiles = allFiles.map(f => path.relative(inputBaseDir, f));
         
         let reportMd = `# Chessboard Localization Test Report\n\n`;
         reportMd += `This report verifies the initial board localization step of the image processing pipeline.\n`;
@@ -270,7 +279,7 @@ cv.onRuntimeInitialized = async () => {
         reportMd += `| Original Image | Detected Board Quadrilateral |\n`;
         reportMd += `|----------------|------------------------------|\n`;
         
-        for (const file of files) {
+        for (const file of relativeFiles) {
             await processImage(file);
             reportMd += `| ![Original](images/${file}) | ![Annotated](images/out/${file}) |\n`;
         }
