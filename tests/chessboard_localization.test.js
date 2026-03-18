@@ -7,78 +7,202 @@ const inputDir = 'tests/images';
 const outputDir = 'tests/images/out';
 const reportFile = 'tests/board_localization_report.md';
 
-function findBoardQuad(src, contours, imageArea) {
-    let maxArea = 0;
-    let bestQuad = null;
+function distance(p1, p2) {
+    return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+}
+
+function getQuadCenter(pts) {
+    let x = 0, y = 0;
+    for (let i = 0; i < 4; i++) {
+        x += pts[i].x;
+        y += pts[i].y;
+    }
+    return { x: x / 4, y: y / 4 };
+}
+
+function evaluateGridCorners(gray, corners, cols, rows) {
+    let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, 8, 0, 8, 8, 0, 8]);
+    let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        corners[0].x, corners[0].y,
+        corners[1].x, corners[1].y,
+        corners[2].x, corners[2].y,
+        corners[3].x, corners[3].y
+    ]);
+    let transform = cv.getPerspectiveTransform(srcTri, dstTri);
+
+    let evenIntensities = [];
+    let oddIntensities = [];
+    let valid = true;
+
+    for (let x = 0; x < 8; x++) {
+        for (let y = 0; y < 8; y++) {
+            // Sample a 3x3 grid within each square to get a more robust average
+            for (let dx = 0.25; dx <= 0.75; dx += 0.25) {
+                for (let dy = 0.25; dy <= 0.75; dy += 0.25) {
+                    let cx = x + dx;
+                    let cy = y + dy;
+                    
+                    let ptMat = cv.matFromArray(1, 1, cv.CV_32FC2, [cx, cy]);
+                    let dstMat = new cv.Mat();
+                    cv.perspectiveTransform(ptMat, dstMat, transform);
+                    
+                    let px = dstMat.data32F[0];
+                    let py = dstMat.data32F[1];
+                    
+                    ptMat.delete(); dstMat.delete();
+
+                    if (px < 0 || px >= cols || py < 0 || py >= rows) {
+                        valid = false;
+                        break;
+                    }
+
+                    let intensity = gray.ucharPtr(Math.floor(py), Math.floor(px))[0];
+                    if ((x + y) % 2 === 0) {
+                        evenIntensities.push(intensity);
+                    } else {
+                        oddIntensities.push(intensity);
+                    }
+                }
+                if (!valid) break;
+            }
+            if (!valid) break;
+        }
+        if (!valid) break;
+    }
+
+    srcTri.delete(); dstTri.delete(); transform.delete();
+
+    if (!valid || evenIntensities.length === 0 || oddIntensities.length === 0) return -1;
+
+    let evenMean = evenIntensities.reduce((a, b) => a + b, 0) / evenIntensities.length;
+    let oddMean = oddIntensities.reduce((a, b) => a + b, 0) / oddIntensities.length;
+    return Math.abs(evenMean - oddMean);
+}
+
+function optimizeCorners(gray, initialCorners, cols, rows) {
+    let bestCorners = initialCorners.map(p => ({x: p.x, y: p.y}));
+    let bestScore = evaluateGridCorners(gray, bestCorners, cols, rows);
     
-    // First pass: try to find a natural 4-sided polygon contour
+    let stepSize = 10;
+    while (stepSize >= 1) {
+        let improved = false;
+        for (let i = 0; i < 4; i++) {
+            let directions = [
+                {x: stepSize, y: 0}, {x: -stepSize, y: 0},
+                {x: 0, y: stepSize}, {x: 0, y: -stepSize},
+                {x: stepSize, y: stepSize}, {x: -stepSize, y: -stepSize},
+                {x: stepSize, y: -stepSize}, {x: -stepSize, y: stepSize}
+            ];
+            
+            for (let dir of directions) {
+                let testCorners = bestCorners.map((p, idx) => idx === i ? {x: p.x + dir.x, y: p.y + dir.y} : {x: p.x, y: p.y});
+                let score = evaluateGridCorners(gray, testCorners, cols, rows);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestCorners = testCorners;
+                    improved = true;
+                }
+            }
+        }
+        if (!improved) {
+            stepSize = Math.floor(stepSize / 2);
+        }
+    }
+    return bestCorners;
+}
+
+function findBoardQuad(src, gray, contours, imageArea) {
+    let quads = [];
+    let imageCenter = { x: src.cols / 2, y: src.rows / 2 };
+
     for (let i = 0; i < contours.size(); ++i) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt, false);
         
-        // Filter out extreme sizes
-        if (area > imageArea * 0.05 && area < imageArea * 0.95) {
+        // Look for squares that could be a single chessboard tile
+        if (area > imageArea * 0.0005 && area < imageArea * 0.1) {
             let tmp = new cv.Mat();
             let perimeter = cv.arcLength(cnt, true);
-            // Epsilon to accommodate lens distortion and slight curves
-            cv.approxPolyDP(cnt, tmp, 0.02 * perimeter, true);
+            cv.approxPolyDP(cnt, tmp, 0.05 * perimeter, true);
             
-            if (tmp.rows === 4 && area > maxArea) {
-                maxArea = area;
-                if (bestQuad) bestQuad.delete();
-                bestQuad = tmp.clone();
-            }
-            tmp.delete();
-        }
-    }
-    
-    // Fallback: if no natural 4-point quad is found, find the largest contour,
-    // get its convex hull, and forcefully approximate it down to 4 points.
-    if (!bestQuad) {
-        let maxContour = null;
-        maxArea = 0;
-        
-        for (let i = 0; i < contours.size(); ++i) {
-            let cnt = contours.get(i);
-            let area = cv.contourArea(cnt, false);
-            if (area > imageArea * 0.05 && area < imageArea * 0.95 && area > maxArea) {
-                maxArea = area;
-                maxContour = cnt;
-            }
-        }
-        
-        if (maxContour) {
-            let hull = new cv.Mat();
-            cv.convexHull(maxContour, hull, true, true);
-            let epsilon = 0.01 * cv.arcLength(hull, true);
-            let tmp = new cv.Mat();
-            
-            // Iteratively increase epsilon until we simplify to exactly 4 points
-            for (let iter = 0; iter < 100; iter++) {
-                cv.approxPolyDP(hull, tmp, epsilon, true);
-                if (tmp.rows === 4) {
-                    bestQuad = tmp.clone();
-                    break;
-                } else if (tmp.rows < 4) {
-                    break; // went too far, stop
+            if (tmp.rows === 4 && cv.isContourConvex(tmp)) {
+                let pts = [];
+                for (let j = 0; j < 4; j++) {
+                    pts.push({ x: tmp.data32S[j * 2], y: tmp.data32S[j * 2 + 1] });
                 }
-                epsilon *= 1.1; // slowly increase epsilon
+                pts.sort((a, b) => a.y - b.y);
+                let top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
+                let bottom = pts.slice(2, 4).sort((a, b) => b.x - a.x);
+                pts = [...top, ...bottom];
+
+                quads.push({
+                    pts: pts,
+                    center: getQuadCenter(pts),
+                    area: area
+                });
             }
-            hull.delete();
             tmp.delete();
         }
     }
     
-    if (bestQuad && bestQuad.rows === 4) {
-        let pts = [];
-        for (let i = 0; i < 4; i++) {
-            pts.push({ x: bestQuad.data32S[i * 2], y: bestQuad.data32S[i * 2 + 1] });
+    // Start with candidate squares nearest to the center of the image
+    quads.sort((a, b) => distance(a.center, imageCenter) - distance(b.center, imageCenter));
+    
+    let bestInitialCorners = null;
+    let maxInitialScore = -1;
+
+    for (let q = 0; q < Math.min(quads.length, 50); q++) {
+        let quad = quads[q];
+        
+        // Map [0,0] to [1,1] coordinates to the detected quad
+        let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, 1, 0, 1, 1, 0, 1]);
+        let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            quad.pts[0].x, quad.pts[0].y,
+            quad.pts[1].x, quad.pts[1].y,
+            quad.pts[2].x, quad.pts[2].y,
+            quad.pts[3].x, quad.pts[3].y
+        ]);
+        let transform = cv.getPerspectiveTransform(srcTri, dstTri);
+
+        // Assume this quad is a square on the 8x8 board, test all possible [offsetX, offsetY] positions
+        for (let offsetX = 0; offsetX < 8; offsetX++) {
+            for (let offsetY = 0; offsetY < 8; offsetY++) {
+                // Calculate the 4 corners of the 8x8 grid given this offset
+                let bounds = [
+                    {x: -offsetX, y: -offsetY},
+                    {x: 8 - offsetX, y: -offsetY},
+                    {x: 8 - offsetX, y: 8 - offsetY},
+                    {x: -offsetX, y: 8 - offsetY}
+                ];
+
+                let boundPts = [];
+                for (let b of bounds) {
+                    let ptMat = cv.matFromArray(1, 1, cv.CV_32FC2, [b.x, b.y]);
+                    let dstMat = new cv.Mat();
+                    cv.perspectiveTransform(ptMat, dstMat, transform);
+                    boundPts.push({x: dstMat.data32F[0], y: dstMat.data32F[1]});
+                    ptMat.delete(); dstMat.delete();
+                }
+                
+                // Score the checkerboard pattern (alternating light and dark)
+                let score = evaluateGridCorners(gray, boundPts, src.cols, src.rows);
+                if (score > maxInitialScore && score > 30) {
+                    maxInitialScore = score;
+                    bestInitialCorners = boundPts;
+                }
+            }
         }
-        bestQuad.delete();
-        return pts;
+        srcTri.delete(); dstTri.delete(); transform.delete();
+        
+        // If we found a very strong checkerboard pattern, early out
+        if (maxInitialScore > 80) break;
+    }
+
+    if (bestInitialCorners) {
+        // Finely adjust the 4 corners to maximize the checkerboard contrast, essentially snapping it perfectly to the board edges
+        return optimizeCorners(gray, bestInitialCorners, src.cols, src.rows);
     }
     
-    if (bestQuad) bestQuad.delete();
     return null;
 }
 
@@ -111,7 +235,7 @@ async function processImage(filename) {
     
     let imageArea = src.rows * src.cols;
     
-    let quadPts = findBoardQuad(src, contours, imageArea);
+    let quadPts = findBoardQuad(src, gray, contours, imageArea);
     
     if (quadPts) {
         // Draw the quadrilateral
@@ -122,7 +246,7 @@ async function processImage(filename) {
             cv.line(src, pt1, pt2, new cv.Scalar(0, 255, 0, 255), 5);
         }
     } else {
-        console.log(`Could not find a quadrilateral bounding box in ${filename}`);
+        console.log(`Could not find a valid 8x8 chessboard pattern bounding box in ${filename}`);
     }
     
     // Copy data back to Jimp
@@ -142,7 +266,7 @@ cv.onRuntimeInitialized = async () => {
         
         let reportMd = `# Chessboard Localization Test Report\n\n`;
         reportMd += `This report verifies the initial board localization step of the image processing pipeline.\n`;
-        reportMd += `Using Algorithm: Quadrilateral Contour Extraction\n\n`;
+        reportMd += `Using Algorithm: Seed Square Extrapolation & 8x8 Checkerboard Validation\n\n`;
         reportMd += `| Original Image | Detected Board Quadrilateral |\n`;
         reportMd += `|----------------|------------------------------|\n`;
         

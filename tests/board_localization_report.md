@@ -1,7 +1,7 @@
 # Chessboard Localization Test Report
 
 This report verifies the initial board localization step of the image processing pipeline.
-Using Algorithm: Quadrilateral Contour Extraction
+Using Algorithm: Seed Square Extrapolation & 8x8 Checkerboard Validation
 
 | Original Image | Detected Board Quadrilateral |
 |----------------|------------------------------|
