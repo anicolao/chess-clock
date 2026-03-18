@@ -10,6 +10,10 @@ Using Algorithm: Seed Square Extrapolation & 8x8 Checkerboard Validation
 | ![Original](images/d5.jpg) | ![Annotated](images/out/d5.jpg) |
 | ![Original](images/e4.jpg) | ![Annotated](images/out/e4.jpg) |
 | ![Original](images/e6.jpg) | ![Annotated](images/out/e6.jpg) |
+| ![Original](images/empty1.jpg) | ![Annotated](images/out/empty1.jpg) |
+| ![Original](images/empty2.jpg) | ![Annotated](images/out/empty2.jpg) |
+| ![Original](images/empty3.jpg) | ![Annotated](images/out/empty3.jpg) |
+| ![Original](images/empty4.jpg) | ![Annotated](images/out/empty4.jpg) |
 | ![Original](images/empty_board.jpg) | ![Annotated](images/out/empty_board.jpg) |
 | ![Original](images/game_start.jpg) | ![Annotated](images/out/game_start.jpg) |
 | ![Original](images/wide_board_1.jpg) | ![Annotated](images/out/wide_board_1.jpg) |
