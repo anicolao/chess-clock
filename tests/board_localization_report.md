@@ -1,0 +1,20 @@
+# Chessboard Localization Test Report
+
+This report verifies the initial board localization step of the image processing pipeline.
+
+| Original Image | Detected Board Bounding Box |
+|----------------|-----------------------------|
+| ![Original](images/b1c3.jpg) | ![Annotated](images/out/b1c3.jpg) |
+| ![Original](images/d4.jpg) | ![Annotated](images/out/d4.jpg) |
+| ![Original](images/d5.jpg) | ![Annotated](images/out/d5.jpg) |
+| ![Original](images/e4.jpg) | ![Annotated](images/out/e4.jpg) |
+| ![Original](images/e6.jpg) | ![Annotated](images/out/e6.jpg) |
+| ![Original](images/game_start.jpg) | ![Annotated](images/out/game_start.jpg) |
+| ![Original](images/wide_board_1.jpg) | ![Annotated](images/out/wide_board_1.jpg) |
+| ![Original](images/wide_board_2.jpg) | ![Annotated](images/out/wide_board_2.jpg) |
+| ![Original](images/wide_board_3.jpg) | ![Annotated](images/out/wide_board_3.jpg) |
+| ![Original](images/wide_board_4.jpg) | ![Annotated](images/out/wide_board_4.jpg) |
+| ![Original](images/zoomed_board_1.jpg) | ![Annotated](images/out/zoomed_board_1.jpg) |
+| ![Original](images/zoomed_board_2.jpg) | ![Annotated](images/out/zoomed_board_2.jpg) |
+| ![Original](images/zoomed_board_3.jpg) | ![Annotated](images/out/zoomed_board_3.jpg) |
+| ![Original](images/zoomed_board_4.jpg) | ![Annotated](images/out/zoomed_board_4.jpg) |
