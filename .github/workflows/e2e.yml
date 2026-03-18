@@ -10,26 +10,27 @@ on:
 jobs:
   test:
     timeout-minutes: 60
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v25
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
-        run: nix develop -c npm ci
+        run: npm ci
 
-      - name: Verify Fontconfig Isolation
-        run: nix develop -c fc-match sans-serif
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
 
       - name: Run Playwright tests
-        run: |
-          mkdir -p /tmp/empty_home
-          env -u XDG_DATA_DIRS -u XDG_CONFIG_DIRS HOME=/tmp/empty_home nix develop -c npm run test:e2e
+        run: npm run test:e2e
+        env:
+          CI: true
 
       - name: Upload test results
         if: always()
