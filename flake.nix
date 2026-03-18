@@ -11,7 +11,13 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        esp-idf-full = nixpkgs-esp-dev.packages.${system}.esp-idf-full;
+        
+        # Only try to get ESP packages on Linux
+        esp-pkgs = if pkgs.stdenv.isLinux then [
+          nixpkgs-esp-dev.packages.${system}.esp-idf-full
+          esp-qemu
+        ] else [];
+
         strictFontsConf = pkgs.writeText "fonts.conf" ''
           <?xml version="1.0"?>
           <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
@@ -22,7 +28,7 @@
           </fontconfig>
         '';
 
-        esp-qemu = pkgs.stdenv.mkDerivation {
+        esp-qemu = if pkgs.stdenv.isLinux then (pkgs.stdenv.mkDerivation {
           pname = "esp-qemu";
           version = "esp-develop-9.2.2-20250817";
           src = if system == "x86_64-linux" then pkgs.fetchurl {
@@ -31,7 +37,7 @@
           } else if system == "aarch64-linux" then pkgs.fetchurl {
             url = "https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20250817/qemu-xtensa-softmmu-esp_develop_9.2.2_20250817-aarch64-linux-gnu.tar.xz";
             sha256 = "1kg75kbikghyz0a2m0iqjkr3wn89v4irhw0hh5nqi86vs47nwzri";
-          } else throw "Unsupported system for esp-qemu";
+          } else throw "Unsupported Linux system for esp-qemu";
           
           nativeBuildInputs = [ pkgs.autoPatchelfHook pkgs.makeWrapper ];
           buildInputs = with pkgs; [
@@ -47,17 +53,17 @@
             mkdir -p $out
             cp -r * $out/
           '';
-        };
+        }) else null;
 
       in
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             nodejs_20
+            bun
             nodePackages.typescript
             nodePackages.svelte-language-server
             playwright-driver.browsers
-            chromium
             gh
             git
             fontconfig
@@ -72,38 +78,40 @@
             imagemagick
             wget
 
-            # ESP-IDF
-            esp-idf-full
-            
-            # Emulator
-            esp-qemu
-            
             # Python for venv
             python3
             python3Packages.pip
             python3Packages.virtualenv
-          ];
+          ] ++ esp-pkgs;
 
           shellHook = ''
             export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
             export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-            export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${pkgs.chromium}/bin/chromium"
+            
+            # Use appropriate Chromium path for Linux vs Darwin
+            if [ -f "${pkgs.playwright-driver.browsers}/chromium/chrome-linux/chrome" ]; then
+              export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${pkgs.playwright-driver.browsers}/chromium/chrome-linux/chrome"
+            elif [ -d "/Applications/Google Chrome.app" ]; then
+              export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            fi
+
             export FONTCONFIG_FILE=${strictFontsConf}
 
-            # Setup Python Virtual Environment for pytest-embedded
+            # Setup Python Virtual Environment
             VENV_DIR="$PWD/.venv"
             if [ ! -d "$VENV_DIR" ]; then
               echo "Creating python venv at $VENV_DIR"
               python3 -m venv "$VENV_DIR"
-              source "$VENV_DIR/bin/activate"
-              pip install pytest pytest-embedded pytest-embedded-idf pytest-embedded-qemu
+              source "$VENV_DIR/activate"
+              pip install --quiet pytest pytest-embedded pytest-embedded-idf pytest-embedded-qemu
             else
               source "$VENV_DIR/bin/activate"
             fi
 
-            # Wrapper to fix `esptool.py merge-bin` vs `merge_bin` for pytest-embedded
-            mkdir -p "$VENV_DIR/esptool-wrapper"
-            cat << 'INNER_EOF' > "$VENV_DIR/esptool-wrapper/esptool.py"
+            # Wrapper for esptool (only if esptool.py is available)
+            if command -v esptool.py > /dev/null; then
+              mkdir -p "$VENV_DIR/esptool-wrapper"
+              cat << 'INNER_EOF' > "$VENV_DIR/esptool-wrapper/esptool.py"
 #!/usr/bin/env bash
 REAL_ESPTOOL=$(which -a esptool.py | grep -v 'esptool-wrapper' | head -n 1)
 args=()
@@ -116,8 +124,9 @@ for arg in "$@"; do
 done
 exec "$REAL_ESPTOOL" "''${args[@]}"
 INNER_EOF
-            chmod +x "$VENV_DIR/esptool-wrapper/esptool.py"
-            export PATH="$VENV_DIR/esptool-wrapper:$PATH"
+              chmod +x "$VENV_DIR/esptool-wrapper/esptool.py"
+              export PATH="$VENV_DIR/esptool-wrapper:$PATH"
+            fi
           '';
         };
       }
