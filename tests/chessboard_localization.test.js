@@ -7,162 +7,79 @@ const inputDir = 'tests/images';
 const outputDir = 'tests/images/out';
 const reportFile = 'tests/board_localization_report.md';
 
-const USE_CENTER_OUT_HEURISTIC = process.env.USE_OLD_BBOX_ALGO !== 'true'; // Toggle between approaches
-
-function findBoundingBoxOld(src, contours, imageArea) {
+function findBoardQuad(src, contours, imageArea) {
     let maxArea = 0;
-    let maxContour = null;
+    let bestQuad = null;
     
+    // First pass: try to find a natural 4-sided polygon contour
     for (let i = 0; i < contours.size(); ++i) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt, false);
         
-        // Filter out extreme sizes (too small or the entire image border)
+        // Filter out extreme sizes
         if (area > imageArea * 0.05 && area < imageArea * 0.95) {
             let tmp = new cv.Mat();
             let perimeter = cv.arcLength(cnt, true);
-            // Higher epsilon to accommodate lens distortion on chessboards
-            cv.approxPolyDP(cnt, tmp, 0.05 * perimeter, true);
+            // Epsilon to accommodate lens distortion and slight curves
+            cv.approxPolyDP(cnt, tmp, 0.02 * perimeter, true);
             
-            // Prefer 4 points, but fallback to the largest contour otherwise
             if (tmp.rows === 4 && area > maxArea) {
                 maxArea = area;
-                if (maxContour) maxContour.delete();
-                maxContour = tmp.clone();
-            } else if (maxContour === null && area > maxArea) {
-                maxArea = area;
-                if (maxContour) maxContour.delete();
-                maxContour = cnt.clone();
+                if (bestQuad) bestQuad.delete();
+                bestQuad = tmp.clone();
             }
             tmp.delete();
         }
     }
     
-    if (maxContour) {
-        let rect = cv.boundingRect(maxContour);
-        maxContour.delete();
-        return rect;
-    }
-    return null;
-}
-
-function findBoundingBoxNew(src, contours, imageArea) {
-    let squares = [];
-    
-    for (let i = 0; i < contours.size(); ++i) {
-        let cnt = contours.get(i);
-        let area = cv.contourArea(cnt, false);
+    // Fallback: if no natural 4-point quad is found, find the largest contour,
+    // get its convex hull, and forcefully approximate it down to 4 points.
+    if (!bestQuad) {
+        let maxContour = null;
+        maxArea = 0;
         
-        // A single square on an 8x8 board is ~1/64 of the board area.
-        // Assuming the board occupies between 10% and 90% of the image,
-        // a square could be roughly between 0.15% and 5% of the image.
-        // We will be slightly more forgiving.
-        if (area > imageArea * 0.0005 && area < imageArea * 0.05) {
-            let rect = cv.boundingRect(cnt);
-            let aspect = rect.width / rect.height;
-            // Loosely square
-            if (aspect > 0.4 && aspect < 2.5) {
-                squares.push({
-                    rect: rect,
-                    center: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
-                    area: area
-                });
+        for (let i = 0; i < contours.size(); ++i) {
+            let cnt = contours.get(i);
+            let area = cv.contourArea(cnt, false);
+            if (area > imageArea * 0.05 && area < imageArea * 0.95 && area > maxArea) {
+                maxArea = area;
+                maxContour = cnt;
             }
         }
-    }
-    
-    if (squares.length === 0) return null;
-    
-    // Sort by distance to the center of the image
-    let cx = src.cols / 2;
-    let cy = src.rows / 2;
-    squares.sort((a, b) => {
-        let da = Math.pow(a.center.x - cx, 2) + Math.pow(a.center.y - cy, 2);
-        let db = Math.pow(b.center.x - cx, 2) + Math.pow(b.center.y - cy, 2);
-        return da - db;
-    });
-    
-    let centerSquare = squares[0];
-    let expectedWidth = centerSquare.rect.width;
-    let expectedHeight = centerSquare.rect.height;
-    
-    let gridSquares = [];
-    
-    for (let sq of squares) {
-        // Must be of somewhat similar area
-        if (sq.area > centerSquare.area * 0.2 && sq.area < centerSquare.area * 5.0) {
-            let dx = sq.center.x - centerSquare.center.x;
-            let dy = sq.center.y - centerSquare.center.y;
+        
+        if (maxContour) {
+            let hull = new cv.Mat();
+            cv.convexHull(maxContour, hull, true, true);
+            let epsilon = 0.01 * cv.arcLength(hull, true);
+            let tmp = new cv.Mat();
             
-            let stepsX = Math.round(dx / expectedWidth);
-            let stepsY = Math.round(dy / expectedHeight);
-            
-            let expectedX = centerSquare.center.x + stepsX * expectedWidth;
-            let expectedY = centerSquare.center.y + stepsY * expectedHeight;
-            
-            let dist = Math.pow(sq.center.x - expectedX, 2) + Math.pow(sq.center.y - expectedY, 2);
-            let maxDist = Math.pow(expectedWidth * 0.5, 2) + Math.pow(expectedHeight * 0.5, 2);
-            
-            // Check if it aligns well with the grid
-            if (dist < maxDist) {
-                gridSquares.push({ sq, stepsX, stepsY });
+            // Iteratively increase epsilon until we simplify to exactly 4 points
+            for (let iter = 0; iter < 100; iter++) {
+                cv.approxPolyDP(hull, tmp, epsilon, true);
+                if (tmp.rows === 4) {
+                    bestQuad = tmp.clone();
+                    break;
+                } else if (tmp.rows < 4) {
+                    break; // went too far, stop
+                }
+                epsilon *= 1.1; // slowly increase epsilon
             }
+            hull.delete();
+            tmp.delete();
         }
     }
     
-    if (gridSquares.length === 0) return null;
-    
-    // Find limits of the grid. It shouldn't exceed 8 in width or height.
-    let minX = Math.min(...gridSquares.map(g => g.stepsX));
-    let maxX = Math.max(...gridSquares.map(g => g.stepsX));
-    let minY = Math.min(...gridSquares.map(g => g.stepsY));
-    let maxY = Math.max(...gridSquares.map(g => g.stepsY));
-    
-    // Simple centering clamp: if span > 8, constrain around the center square (which is at step 0)
-    if (maxX - minX + 1 > 8) {
-        // assume 0 is roughly the center of the board
-        minX = Math.max(minX, -4);
-        maxX = Math.min(maxX, 3);
-        if (maxX - minX + 1 < 8) {
-            if (minX > -4) maxX = minX + 7;
-            else minX = maxX - 7;
+    if (bestQuad && bestQuad.rows === 4) {
+        let pts = [];
+        for (let i = 0; i < 4; i++) {
+            pts.push({ x: bestQuad.data32S[i * 2], y: bestQuad.data32S[i * 2 + 1] });
         }
-    }
-    if (maxY - minY + 1 > 8) {
-        minY = Math.max(minY, -4);
-        maxY = Math.min(maxY, 3);
-        if (maxY - minY + 1 < 8) {
-            if (minY > -4) maxY = minY + 7;
-            else minY = maxY - 7;
-        }
+        bestQuad.delete();
+        return pts;
     }
     
-    // Collect final in-bound squares
-    let validGridSquares = gridSquares.filter(g => 
-        g.stepsX >= minX && g.stepsX <= maxX &&
-        g.stepsY >= minY && g.stepsY <= maxY
-    );
-    
-    if (validGridSquares.length === 0) return null;
-    
-    // Compute expected overall bounding box from the valid squares to account for missed edge squares
-    let overallRectX = centerSquare.center.x + (minX - 0.5) * expectedWidth;
-    let overallRectY = centerSquare.center.y + (minY - 0.5) * expectedHeight;
-    let overallRectW = (maxX - minX + 1) * expectedWidth;
-    let overallRectH = (maxY - minY + 1) * expectedHeight;
-    
-    // Include the actual extremes just to make sure we encapsulate detected edges
-    let actualMinX = Math.min(...validGridSquares.map(g => g.sq.rect.x));
-    let actualMinY = Math.min(...validGridSquares.map(g => g.sq.rect.y));
-    let actualMaxX = Math.max(...validGridSquares.map(g => g.sq.rect.x + g.sq.rect.width));
-    let actualMaxY = Math.max(...validGridSquares.map(g => g.sq.rect.y + g.sq.rect.height));
-    
-    return {
-        x: Math.min(overallRectX, actualMinX),
-        y: Math.min(overallRectY, actualMinY),
-        width: Math.max(overallRectX + overallRectW, actualMaxX) - Math.min(overallRectX, actualMinX),
-        height: Math.max(overallRectY + overallRectH, actualMaxY) - Math.min(overallRectY, actualMinY)
-    };
+    if (bestQuad) bestQuad.delete();
+    return null;
 }
 
 async function processImage(filename) {
@@ -194,17 +111,18 @@ async function processImage(filename) {
     
     let imageArea = src.rows * src.cols;
     
-    let rect = USE_CENTER_OUT_HEURISTIC 
-        ? findBoundingBoxNew(src, contours, imageArea)
-        : findBoundingBoxOld(src, contours, imageArea);
+    let quadPts = findBoardQuad(src, contours, imageArea);
     
-    if (rect) {
-        let pt1 = new cv.Point(rect.x, rect.y);
-        let pt2 = new cv.Point(rect.x + rect.width, rect.y + rect.height);
-        // Draw a thick red rectangle
-        cv.rectangle(src, pt1, pt2, new cv.Scalar(255, 0, 0, 255), 5);
+    if (quadPts) {
+        // Draw the quadrilateral
+        for (let i = 0; i < 4; i++) {
+            let pt1 = new cv.Point(quadPts[i].x, quadPts[i].y);
+            let pt2 = new cv.Point(quadPts[(i + 1) % 4].x, quadPts[(i + 1) % 4].y);
+            // Draw a thick green line connecting the points
+            cv.line(src, pt1, pt2, new cv.Scalar(0, 255, 0, 255), 5);
+        }
     } else {
-        console.log(`Could not find a bounding box in ${filename}`);
+        console.log(`Could not find a quadrilateral bounding box in ${filename}`);
     }
     
     // Copy data back to Jimp
@@ -224,9 +142,9 @@ cv.onRuntimeInitialized = async () => {
         
         let reportMd = `# Chessboard Localization Test Report\n\n`;
         reportMd += `This report verifies the initial board localization step of the image processing pipeline.\n`;
-        reportMd += `Using Heuristic: ${USE_CENTER_OUT_HEURISTIC ? 'Center-out Grid Expansion' : 'Largest Quad Contour'}\n\n`;
-        reportMd += `| Original Image | Detected Board Bounding Box |\n`;
-        reportMd += `|----------------|-----------------------------|\n`;
+        reportMd += `Using Algorithm: Quadrilateral Contour Extraction\n\n`;
+        reportMd += `| Original Image | Detected Board Quadrilateral |\n`;
+        reportMd += `|----------------|------------------------------|\n`;
         
         for (const file of files) {
             await processImage(file);
