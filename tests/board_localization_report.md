@@ -1,6 +1,7 @@
 # Chessboard Localization Test Report
 
 This report verifies the initial board localization step of the image processing pipeline.
+Using Heuristic: Center-out Grid Expansion
 
 | Original Image | Detected Board Bounding Box |
 |----------------|-----------------------------|
