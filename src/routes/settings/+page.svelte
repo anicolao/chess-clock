@@ -1,5 +1,6 @@
 <script lang="ts">
   import { base } from '$app/paths';
+  import BoardCalibration from '$lib/components/BoardCalibration.svelte';
   import QRCode from 'qrcode';
 
   let ssid = '';
@@ -65,6 +66,13 @@
     <p class="token-text">Pairing Token: {token}</p>
   </div>
   {/if}
+
+  
+  <h2 style="margin-top: 3rem;">Board Calibration</h2>
+  <p>Drag the 4 corners to fit the chessboard boundaries.</p>
+  <div style="background: #222; padding: 1rem; border-radius: 8px; max-width: 600px;">
+    <BoardCalibration imageUrl="{base}/empty_board.jpg" />
+  </div>
 
   <br />
   <a href="{base}/" class="back-link">Back to Clock</a>

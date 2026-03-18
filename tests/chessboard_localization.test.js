@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fs from 'fs';
 import path from 'path';
 import cv from '@techstark/opencv-js';
@@ -7,6 +8,7 @@ const inputDir = 'tests/images';
 const outputDir = 'tests/images/out';
 const reportFile = 'tests/board_localization_report.md';
 
+/** @param {any} src */ /** @param {any} contours */ /** @param {any} imageArea */ 
 function findBoardQuad(src, contours, imageArea) {
     let maxArea = 0;
     let bestQuad = null;
@@ -82,6 +84,7 @@ function findBoardQuad(src, contours, imageArea) {
     return null;
 }
 
+/** @param {any} filename */ 
 async function processImage(filename) {
     const inputPath = path.join(inputDir, filename);
     const outputPath = path.join(outputDir, filename);
@@ -127,6 +130,7 @@ async function processImage(filename) {
     
     // Copy data back to Jimp
     image.bitmap.data.set(src.data);
+    // @ts-ignore
     await image.write(outputPath);
     
     src.delete(); gray.delete(); blurred.delete(); edges.delete(); dilated.delete(); M.delete();
