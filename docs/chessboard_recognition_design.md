@@ -21,7 +21,7 @@ The core of the recognition engine consists of a sequential pipeline of computer
 The incoming raw image is converted to grayscale to reduce computational complexity. Noise reduction techniques (such as Gaussian blurring) are applied, followed by edge detection algorithms to highlight boundaries within the image.
 
 ### Step B: Board Localization
-The system detects contours within the edge-mapped image. By finding the largest enclosed region with four distinct corners, the system identifies the outer boundaries of the chessboard. A perspective transformation is then applied to warp the detected board area into a perfectly square, top-down, 2D orientation.
+The system detects contours within the edge-mapped image. The system identifies candidate quadrilateral shapes that could represent individual chessboard squares. Starting with squares near the center of the image, it extrapolates an 8x8 grid and validates it against the expected alternating light and dark checkerboard pattern. Once a valid grid is found, a local search optimization fine-tunes the outer boundary corners to perfectly snap to the board edges, ensuring a tight encasement. A perspective transformation is then applied to warp the detected board area into a perfectly square, top-down, 2D orientation.
 
 ### Step C: Grid Segmentation
 The flattened, top-down board image is geometrically subdivided into a consistent 8x8 grid, representing the 64 squares of the chessboard.
