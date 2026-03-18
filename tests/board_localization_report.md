@@ -1,10 +1,10 @@
 # Chessboard Localization Test Report
 
 This report verifies the initial board localization step of the image processing pipeline.
-Using Heuristic: Center-out Grid Expansion
+Using Algorithm: Quadrilateral Contour Extraction
 
-| Original Image | Detected Board Bounding Box |
-|----------------|-----------------------------|
+| Original Image | Detected Board Quadrilateral |
+|----------------|------------------------------|
 | ![Original](images/b1c3.jpg) | ![Annotated](images/out/b1c3.jpg) |
 | ![Original](images/d4.jpg) | ![Annotated](images/out/d4.jpg) |
 | ![Original](images/d5.jpg) | ![Annotated](images/out/d5.jpg) |
