@@ -92,81 +92,54 @@ prov_state_t prov_get_state(const prov_ctx_t *ctx) {
 }
 
 bool prov_decode_qr_image(prov_ctx_t *ctx, const uint8_t *image_data, int width, int height) {
-    printf("prov_decode_qr_image: width=%d, height=%d\n", width, height);
     if (!ctx || !image_data) return false;
 
     struct quirc *q = quirc_new();
     if (!q) {
-        printf("quirc_new failed\n");
         return false;
     }
 
     if (quirc_resize(q, width, height) < 0) {
-        printf("quirc_resize failed\n");
         quirc_destroy(q);
         return false;
     }
 
     int w, h;
     uint8_t *q_image = quirc_begin(q, &w, &h);
-    printf("quirc_begin returned w=%d, h=%d\n", w, h);
-    
     memcpy(q_image, image_data, w * h);
     quirc_end(q);
 
     int num_codes = quirc_count(q);
-    printf("quirc_count: %d\n", num_codes);
     bool success = false;
     
     for (int i = 0; i < num_codes; i++) {
-        printf("Processing code %d\n", i);
-        struct quirc_code *code = calloc(1, sizeof(struct quirc_code));
-        struct quirc_data *data = calloc(1, sizeof(struct quirc_data));
+        struct quirc_code code_obj; struct quirc_code *code = &code_obj; memset(code, 0, sizeof(*code));
+        struct quirc_data data_obj; struct quirc_data *data = &data_obj; memset(data, 0, sizeof(*data));
         
-        printf("Allocated code=%p, data=%p (sizeof code=%zu, data=%zu)\n", code, data, sizeof(struct quirc_code), sizeof(struct quirc_data));
         
-        if (!code || !data) {
-            printf("Allocation failed\n");
-            if (code) free(code);
-            if (data) free(data);
-            continue;
-        }
 
-        printf("Calling quirc_extract...\n");
         quirc_extract(q, i, code);
 
-        printf("Calling quirc_decode...\n");
         quirc_decode_error_t err = quirc_decode(code, data);
-        printf("quirc_decode returned %d\n", err);
-        
         if (err == 0) {
-            printf("Payload len: %d\n", data->payload_len);
             if (data->payload_len < sizeof(data->payload)) {
                 data->payload[data->payload_len] = '\0';
             } else {
                 data->payload[sizeof(data->payload) - 1] = '\0';
             }
             
-            printf("Payload: %s\n", data->payload);
             success = prov_parse_qr_payload(ctx, (const char *)data->payload);
-            printf("prov_parse_qr_payload success=%d\n", success);
             
-            printf("Freeing code...\n");
-            free(code);
-            printf("Freeing data...\n");
-            free(data);
+            
             if (success) {
                 break;
             }
         } else {
-            printf("Freeing code (err)...\n");
-            free(code);
-            printf("Freeing data (err)...\n");
-            free(data);
+            
+            
         }
     }
 
-    printf("Destroying quirc...\n");
     quirc_destroy(q);
     return success;
 }
