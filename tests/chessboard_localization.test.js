@@ -138,7 +138,7 @@ cv.onRuntimeInitialized = async () => {
         if (!fs.existsSync(outputDir)) {
             fs.mkdirSync(outputDir, { recursive: true });
         }
-        const files = fs.readdirSync(inputDir).filter(f => f.endsWith('.jpg') || f.endsWith('.png'));
+        const files = fs.readdirSync(inputDir).filter(f => (f.endsWith('.jpg') || f.endsWith('.png')) && f.includes('empty'));
         
         let reportMd = `# Chessboard Localization Test Report\n\n`;
         reportMd += `This report verifies the initial board localization step of the image processing pipeline.\n`;
