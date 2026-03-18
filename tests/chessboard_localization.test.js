@@ -7,6 +7,15 @@ const inputBaseDir = 'tests/images';
 const outputBaseDir = 'tests/images/out';
 const reportFile = 'tests/board_localization_report.md';
 
+const TARGET_FILES = [
+    'empty_board.jpg',
+    'empty1.jpg',
+    'empty2.jpg',
+    'empty3.jpg',
+    'empty4.jpg',
+    'game/empty.jpg'
+];
+
 function distance(p1, p2) {
     return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
 }
@@ -40,14 +49,11 @@ function evaluateGridCorners(gray, corners, cols, rows) {
                 for (let dy = 0.25; dy <= 0.75; dy += 0.25) {
                     let cx = x + dx;
                     let cy = y + dy;
-                    
                     let ptMat = cv.matFromArray(1, 1, cv.CV_32FC2, [cx, cy]);
                     let dstMat = new cv.Mat();
                     cv.perspectiveTransform(ptMat, dstMat, transform);
-                    
                     let px = dstMat.data32F[0];
                     let py = dstMat.data32F[1];
-                    
                     ptMat.delete(); dstMat.delete();
 
                     if (px < 0 || px >= cols || py < 0 || py >= rows) {
@@ -56,11 +62,8 @@ function evaluateGridCorners(gray, corners, cols, rows) {
                     }
 
                     let intensity = gray.ucharPtr(Math.floor(py), Math.floor(px))[0];
-                    if ((x + y) % 2 === 0) {
-                        evenIntensities.push(intensity);
-                    } else {
-                        oddIntensities.push(intensity);
-                    }
+                    if ((x + y) % 2 === 0) evenIntensities.push(intensity);
+                    else oddIntensities.push(intensity);
                 }
                 if (!valid) break;
             }
@@ -70,7 +73,6 @@ function evaluateGridCorners(gray, corners, cols, rows) {
     }
 
     srcTri.delete(); dstTri.delete(); transform.delete();
-
     if (!valid || evenIntensities.length === 0 || oddIntensities.length === 0) return -1;
 
     let evenMean = evenIntensities.reduce((a, b) => a + b, 0) / evenIntensities.length;
@@ -92,7 +94,6 @@ function optimizeCorners(gray, initialCorners, cols, rows) {
                 {x: stepSize, y: stepSize}, {x: -stepSize, y: -stepSize},
                 {x: stepSize, y: -stepSize}, {x: -stepSize, y: stepSize}
             ];
-            
             for (let dir of directions) {
                 let testCorners = bestCorners.map((p, idx) => idx === i ? {x: p.x + dir.x, y: p.y + dir.y} : {x: p.x, y: p.y});
                 let score = evaluateGridCorners(gray, testCorners, cols, rows);
@@ -103,9 +104,7 @@ function optimizeCorners(gray, initialCorners, cols, rows) {
                 }
             }
         }
-        if (!improved) {
-            stepSize = Math.floor(stepSize / 2);
-        }
+        if (!improved) stepSize = Math.floor(stepSize / 2);
     }
     return bestCorners;
 }
@@ -117,27 +116,17 @@ function findBoardQuad(src, gray, contours, imageArea) {
     for (let i = 0; i < contours.size(); ++i) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt, false);
-        
         if (area > imageArea * 0.0005 && area < imageArea * 0.1) {
             let tmp = new cv.Mat();
             let perimeter = cv.arcLength(cnt, true);
             cv.approxPolyDP(cnt, tmp, 0.03 * perimeter, true);
-            
             if (tmp.rows === 4 && cv.isContourConvex(tmp)) {
                 let pts = [];
-                for (let j = 0; j < 4; j++) {
-                    pts.push({ x: tmp.data32S[j * 2], y: tmp.data32S[j * 2 + 1] });
-                }
+                for (let j = 0; j < 4; j++) pts.push({ x: tmp.data32S[j * 2], y: tmp.data32S[j * 2 + 1] });
                 pts.sort((a, b) => a.y - b.y);
                 let top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
                 let bottom = pts.slice(2, 4).sort((a, b) => b.x - a.x);
-                pts = [...top, ...bottom];
-
-                quads.push({
-                    pts: pts,
-                    center: getQuadCenter(pts),
-                    area: area
-                });
+                quads.push({ pts: [...top, ...bottom], center: getQuadCenter(pts), area: area });
             }
             tmp.delete();
         }
@@ -150,34 +139,23 @@ function findBoardQuad(src, gray, contours, imageArea) {
 
     for (let q = 0; q < Math.min(quads.length, 100); q++) {
         let quad = quads[q];
-        
         let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, 1, 0, 1, 1, 0, 1]);
         let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            quad.pts[0].x, quad.pts[0].y,
-            quad.pts[1].x, quad.pts[1].y,
-            quad.pts[2].x, quad.pts[2].y,
-            quad.pts[3].x, quad.pts[3].y
+            quad.pts[0].x, quad.pts[0].y, quad.pts[1].x, quad.pts[1].y,
+            quad.pts[2].x, quad.pts[2].y, quad.pts[3].x, quad.pts[3].y
         ]);
         let transform = cv.getPerspectiveTransform(srcTri, dstTri);
 
         for (let offsetX = 0; offsetX < 8; offsetX++) {
             for (let offsetY = 0; offsetY < 8; offsetY++) {
-                let bounds = [
-                    {x: -offsetX, y: -offsetY},
-                    {x: 8 - offsetX, y: -offsetY},
-                    {x: 8 - offsetX, y: 8 - offsetY},
-                    {x: -offsetX, y: 8 - offsetY}
-                ];
-
                 let boundPts = [];
-                for (let b of bounds) {
+                [{x:-offsetX,y:-offsetY},{x:8-offsetX,y:-offsetY},{x:8-offsetX,y:8-offsetY},{x:-offsetX,y:8-offsetY}].forEach(b => {
                     let ptMat = cv.matFromArray(1, 1, cv.CV_32FC2, [b.x, b.y]);
                     let dstMat = new cv.Mat();
                     cv.perspectiveTransform(ptMat, dstMat, transform);
                     boundPts.push({x: dstMat.data32F[0], y: dstMat.data32F[1]});
                     ptMat.delete(); dstMat.delete();
-                }
-                
+                });
                 let score = evaluateGridCorners(gray, boundPts, src.cols, src.rows);
                 if (score > maxInitialScore && score > 30) {
                     maxInitialScore = score;
@@ -188,12 +166,7 @@ function findBoardQuad(src, gray, contours, imageArea) {
         srcTri.delete(); dstTri.delete(); transform.delete();
         if (maxInitialScore > 80) break;
     }
-
-    if (bestInitialCorners) {
-        return optimizeCorners(gray, bestInitialCorners, src.cols, src.rows);
-    }
-    
-    return null;
+    return bestInitialCorners ? optimizeCorners(gray, bestInitialCorners, src.cols, src.rows) : null;
 }
 
 async function processImage(relativePath) {
@@ -201,37 +174,26 @@ async function processImage(relativePath) {
     const outputPath = path.join(outputBaseDir, relativePath);
     
     const outputDir = path.dirname(outputPath);
-    if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-    }
+    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
     console.log(`Processing ${relativePath}...`);
     const image = await Jimp.read(inputPath);
-    
     let src = new cv.Mat(image.bitmap.height, image.bitmap.width, cv.CV_8UC4);
     src.data.set(image.bitmap.data);
-    
     let gray = new cv.Mat();
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-    
     let blurred = new cv.Mat();
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-    
     let edges = new cv.Mat();
     cv.Canny(blurred, edges, 50, 150, 3, false);
-    
     let dilated = new cv.Mat();
     let M = cv.Mat.ones(3, 3, cv.CV_8U);
     cv.dilate(edges, dilated, M, new cv.Point(-1, -1), 1, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
-    
     let contours = new cv.MatVector();
     let hierarchy = new cv.Mat();
     cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
     
-    let imageArea = src.rows * src.cols;
-    
-    let quadPts = findBoardQuad(src, gray, contours, imageArea);
-    
+    let quadPts = findBoardQuad(src, gray, contours, src.rows * src.cols);
     if (quadPts) {
         for (let i = 0; i < 4; i++) {
             let pt1 = new cv.Point(quadPts[i].x, quadPts[i].y);
@@ -239,47 +201,21 @@ async function processImage(relativePath) {
             cv.line(src, pt1, pt2, new cv.Scalar(0, 255, 0, 255), 5);
         }
     } else {
-        console.log(`Could not find a valid 8x8 chessboard pattern bounding box in ${relativePath}`);
+        console.log(`Could not find a valid 8x8 chessboard pattern in ${relativePath}`);
     }
     
     image.bitmap.data.set(src.data);
     await image.write(outputPath);
-    
-    src.delete(); gray.delete(); blurred.delete(); edges.delete(); dilated.delete(); M.delete();
-    contours.delete(); hierarchy.delete();
-}
-
-function getAllFiles(dirPath, arrayOfFiles) {
-    const files = fs.readdirSync(dirPath);
-    arrayOfFiles = arrayOfFiles || [];
-
-    files.forEach(function(file) {
-        if (fs.statSync(dirPath + "/" + file).isDirectory()) {
-            if (file !== 'out' && file !== '8col' && file !== 'empty') {
-                arrayOfFiles = getAllFiles(dirPath + "/" + file, arrayOfFiles);
-            }
-        } else {
-            if (file.endsWith(".jpg") || file.endsWith(".png")) {
-                arrayOfFiles.push(path.join(dirPath, "/", file));
-            }
-        }
-    });
-
-    return arrayOfFiles;
+    src.delete(); gray.delete(); blurred.delete(); edges.delete(); dilated.delete(); M.delete(); contours.delete(); hierarchy.delete();
 }
 
 cv.onRuntimeInitialized = async () => {
     try {
-        const allFiles = getAllFiles(inputBaseDir);
-        const relativeFiles = allFiles.map(f => path.relative(inputBaseDir, f));
-        
-        let reportMd = `# Chessboard Localization Test Report\n\n`;
-        reportMd += `This report verifies the initial board localization step of the image processing pipeline.\n`;
-        reportMd += `Using Algorithm: Seed Square Extrapolation & 8x8 Checkerboard Validation\n\n`;
+        let reportMd = `# Chessboard Localization Test Report (Empty Boards)\n\n`;
         reportMd += `| Original Image | Detected Board Quadrilateral |\n`;
         reportMd += `|----------------|------------------------------|\n`;
         
-        for (const file of relativeFiles) {
+        for (const file of TARGET_FILES) {
             await processImage(file);
             reportMd += `| ![Original](images/${file}) | ![Annotated](images/out/${file}) |\n`;
         }
