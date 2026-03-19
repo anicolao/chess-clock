@@ -3,6 +3,7 @@
 
 	import {
 		clearBoardCalibration,
+		type CameraMode,
 		cloneQuad,
 		createDefaultQuad,
 		loadBoardCalibration,
@@ -22,6 +23,7 @@
 
 	const HANDLE_RADIUS = 0.024;
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
+	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
 
 	let {
 		initialCameraUrl = DEFAULT_CAMERA_URL
@@ -29,10 +31,12 @@
 		initialCameraUrl?: string;
 	} = $props();
 
-	let streamImage: HTMLImageElement | null = null;
-	let snapshotCanvas: HTMLCanvasElement | null = null;
-	let previewCanvas: HTMLCanvasElement | null = null;
+	let streamImage = $state<HTMLImageElement | null>(null);
+	let streamVideo = $state<HTMLVideoElement | null>(null);
+	let snapshotCanvas = $state<HTMLCanvasElement | null>(null);
+	let previewCanvas = $state<HTMLCanvasElement | null>(null);
 
+	let cameraMode = $state<CameraMode>('browser');
 	let cameraUrl = $state(DEFAULT_CAMERA_URL);
 	let normalizedQuad = $state(createDefaultQuad());
 	let referenceImageDataUrl = $state<string | null>(null);
@@ -47,6 +51,7 @@
 
 	let cvModule: OpenCvModule | null = null;
 	let referenceImageData: ImageData | null = null;
+	let mediaStream: MediaStream | null = null;
 	let previewIntervalId: ReturnType<typeof setInterval> | null = null;
 	let previewPending = false;
 
@@ -57,21 +62,29 @@
 		[normalizedQuad[3], normalizedQuad[0]]
 	]);
 	const streamSrc = $derived(
-		streamEnabled && cameraUrl ? `${cameraUrl.replace(/\/$/, '')}/stream` : ''
+		streamEnabled && cameraMode === 'remote' && cameraUrl
+			? `${cameraUrl.replace(/\/$/, '')}/stream`
+			: ''
 	);
 	const hasReference = $derived(Boolean(referenceImageDataUrl));
+	const isRemoteMixedContentBlocked = $derived(
+		cameraMode === 'remote'
+			&& typeof window !== 'undefined'
+			&& window.location.protocol === 'https:'
+			&& /^http:\/\//i.test(cameraUrl)
+	);
+
+	$effect(() => {
+		if (cameraMode === 'browser' && streamVideo && mediaStream && streamVideo.srcObject !== mediaStream) {
+			streamVideo.srcObject = mediaStream;
+			void streamVideo.play().catch(() => {});
+		}
+	});
 
 	onMount(async () => {
-		let shouldAutoStartStream = initialCameraUrl !== DEFAULT_CAMERA_URL;
-		const enableStream = () => {
-			if (shouldAutoStartStream) {
-				streamEnabled = true;
-			}
-		};
-
 		const savedCalibration = loadBoardCalibration();
 		if (savedCalibration) {
-			shouldAutoStartStream = true;
+			cameraMode = savedCalibration.cameraMode;
 			cameraUrl = initialCameraUrl !== DEFAULT_CAMERA_URL
 				? initialCameraUrl
 				: (savedCalibration.cameraUrl || initialCameraUrl);
@@ -79,34 +92,37 @@
 			referenceImageDataUrl = savedCalibration.referenceImageDataUrl;
 			savedAt = savedCalibration.updatedAt;
 		} else {
+			cameraMode = initialCameraUrl !== DEFAULT_CAMERA_URL ? 'remote' : 'browser';
 			cameraUrl = initialCameraUrl;
-		}
-
-		if (document.readyState === 'complete') {
-			enableStream();
-		} else {
-			window.addEventListener('load', enableStream, { once: true });
 		}
 
 		if (referenceImageDataUrl) {
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
 		}
 
+		if (cameraMode === 'browser') {
+			void startBrowserCamera();
+		} else if (initialCameraUrl !== DEFAULT_CAMERA_URL || savedCalibration?.cameraMode === 'remote') {
+			enableRemoteCamera();
+		}
+
 		previewIntervalId = setInterval(() => {
 			void refreshPreview();
 		}, 900);
 		void refreshPreview();
-
-		return () => {
-			window.removeEventListener('load', enableStream);
-		};
 	});
 
 	onDestroy(() => {
 		if (previewIntervalId) {
 			clearInterval(previewIntervalId);
 		}
+		stopBrowserCamera();
 	});
+
+	function stopBrowserCamera() {
+		mediaStream?.getTracks().forEach((track) => track.stop());
+		mediaStream = null;
+	}
 
 	async function loadReferenceImage(dataUrl: string) {
 		try {
@@ -151,18 +167,75 @@
 	}
 
 	function captureFrame() {
-		if (!streamImage || !snapshotCanvas) {
+		const source = cameraMode === 'browser' ? streamVideo : streamImage;
+		if (!source || !snapshotCanvas) {
 			throw new Error('Live camera frame is unavailable.');
 		}
 
 		try {
-			return captureImageDataFromElement(streamImage, snapshotCanvas);
+			return captureImageDataFromElement(source, snapshotCanvas);
 		} catch (error) {
 			throw new Error(
 				error instanceof Error
 					? `${error.message} The camera stream must allow cross-origin canvas access.`
 					: 'The camera stream must allow cross-origin canvas access.'
 			);
+		}
+	}
+
+	function selectSource(mode: CameraMode) {
+		cameraMode = mode;
+		streamEnabled = false;
+		cameraFrameReady = false;
+		errorMessage = null;
+		statusMessage = mode === 'browser'
+			? 'Start the browser camera, then fine tune the quad and capture an empty board.'
+			: BROWSER_CAMERA_NOTICE;
+
+		if (mode === 'browser') {
+			void startBrowserCamera();
+		} else {
+			stopBrowserCamera();
+		}
+	}
+
+	async function startBrowserCamera() {
+		stopBrowserCamera();
+		streamEnabled = true;
+		errorMessage = null;
+		cameraFrameReady = false;
+
+		if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+			errorMessage = 'Browser camera requires a secure context with camera permissions.';
+			return;
+		}
+
+		try {
+			mediaStream = await navigator.mediaDevices.getUserMedia({
+				video: {
+					facingMode: { ideal: 'environment' },
+					width: { ideal: 1280 },
+					height: { ideal: 720 }
+				},
+				audio: false
+			});
+
+			if (streamVideo) {
+				streamVideo.srcObject = mediaStream;
+				await streamVideo.play().catch(() => {});
+			}
+			statusMessage = 'Browser camera connected. Adjust the quad and capture an empty board.';
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to open the browser camera.';
+		}
+	}
+
+	function enableRemoteCamera() {
+		stopBrowserCamera();
+		streamEnabled = true;
+		cameraFrameReady = false;
+		if (isRemoteMixedContentBlocked) {
+			errorMessage = BROWSER_CAMERA_NOTICE;
 		}
 	}
 
@@ -227,6 +300,7 @@
 
 	function saveCalibrationToStorage() {
 		const calibration: BoardCalibration = {
+			cameraMode,
 			cameraUrl,
 			normalizedQuad,
 			referenceImageDataUrl,
@@ -240,9 +314,12 @@
 	}
 
 	function connectCamera() {
-		streamEnabled = true;
-		cameraFrameReady = false;
-		errorMessage = null;
+		if (cameraMode === 'browser') {
+			void startBrowserCamera();
+			return;
+		}
+
+		enableRemoteCamera();
 	}
 
 	function resetCalibration() {
@@ -347,17 +424,43 @@
 	</div>
 
 	<div class="input-row">
-		<label for="camera-url">Camera URL</label>
+		<p class="field-label">Video Source</p>
+		<div class="source-row">
+			<button
+				class="source-btn {cameraMode === 'browser' ? 'active' : ''}"
+				type="button"
+				onclick={() => selectSource('browser')}
+			>
+				Device webcam
+			</button>
+			<button
+				class="source-btn {cameraMode === 'remote' ? 'active' : ''}"
+				type="button"
+				onclick={() => selectSource('remote')}
+			>
+				Remote camera
+			</button>
+		</div>
+	</div>
+
+	<div class="input-row">
+		<label for="camera-url">
+			{cameraMode === 'browser' ? 'Browser camera' : 'Camera URL'}
+		</label>
 		<div class="camera-url-row">
-			<input
-				id="camera-url"
-				type="url"
-				bind:value={cameraUrl}
-				placeholder="http://chesscam.local"
-				autocomplete="off"
-			/>
+			{#if cameraMode === 'remote'}
+				<input
+					id="camera-url"
+					type="url"
+					bind:value={cameraUrl}
+					placeholder="http://chesscam.local"
+					autocomplete="off"
+				/>
+			{:else}
+				<p class="camera-help">{BROWSER_CAMERA_NOTICE}</p>
+			{/if}
 			<button class="action-btn" type="button" onclick={connectCamera}>
-				Connect camera
+				{cameraMode === 'browser' ? 'Start webcam' : 'Connect camera'}
 			</button>
 		</div>
 	</div>
@@ -370,22 +473,39 @@
 			</div>
 
 			<div class="stream-stage">
-				<img
-					bind:this={streamImage}
-					class="stream-image"
-					src={streamSrc}
-					alt="Live chessboard camera frame"
-					crossorigin="anonymous"
-					onload={() => {
-						cameraFrameReady = true;
-						errorMessage = null;
-						void refreshPreview();
-					}}
-					onerror={() => {
-						cameraFrameReady = false;
-						errorMessage = 'The live camera stream could not be loaded.';
-					}}
-				/>
+				{#if cameraMode === 'browser'}
+					<video
+						bind:this={streamVideo}
+						class="stream-image"
+						autoplay
+						muted
+						playsinline
+						onloadeddata={() => {
+							cameraFrameReady = true;
+							errorMessage = null;
+							void refreshPreview();
+						}}
+					></video>
+				{:else}
+					<img
+						bind:this={streamImage}
+						class="stream-image"
+						src={streamSrc}
+						alt="Live chessboard camera frame"
+						crossorigin="anonymous"
+						onload={() => {
+							cameraFrameReady = true;
+							errorMessage = null;
+							void refreshPreview();
+						}}
+						onerror={() => {
+							cameraFrameReady = false;
+							errorMessage = isRemoteMixedContentBlocked
+								? BROWSER_CAMERA_NOTICE
+								: 'The live camera stream could not be loaded.';
+						}}
+					/>
+				{/if}
 
 				{#if cameraFrameReady}
 					<svg
@@ -540,6 +660,12 @@
 		color: #cbd5e1;
 	}
 
+	.field-label {
+		margin: 0 0 0.45rem;
+		font-size: 0.9rem;
+		color: #cbd5e1;
+	}
+
 	.input-row input {
 		width: min(100%, 32rem);
 		padding: 0.8rem 0.95rem;
@@ -559,6 +685,34 @@
 
 	.camera-url-row input {
 		flex: 1 1 20rem;
+	}
+
+	.camera-help {
+		flex: 1 1 20rem;
+		margin: 0;
+		color: #cbd5e1;
+	}
+
+	.source-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.source-btn {
+		padding: 0.72rem 1rem;
+		border-radius: 999px;
+		border: 1px solid rgba(148, 163, 184, 0.22);
+		background: rgba(15, 23, 42, 0.7);
+		color: #e2e8f0;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.source-btn.active {
+		background: rgba(74, 222, 128, 0.18);
+		border-color: rgba(74, 222, 128, 0.64);
+		color: #d1fae5;
 	}
 
 	.workspace {
