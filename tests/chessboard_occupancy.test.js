@@ -22,8 +22,8 @@ const GAME_SEQUENCE = [
     { input: 'initial_setup.jpg', output: '01-initial.jpg', label: '01-initial', move: 'initial' },
     { input: 'e4.jpg', output: '02-e4.jpg', label: '02-e4', move: 'e4' },
     { input: 'e6.jpg', output: '03-e6.jpg', label: '03-e6', move: 'e6' },
-    { input: 'e5.jpg', output: '04-e5.jpg', label: '04-e5', move: 'e5' },
-    { input: 'd4.jpg', output: '05-d4.jpg', label: '05-d4', move: 'd4' },
+    { input: 'd4.jpg', output: '04-d4.jpg', label: '04-d4', move: 'd4' },
+    { input: 'e5.jpg', output: '05-e5.jpg', label: '05-e5', move: 'e5' },
     { input: 'c5.jpg', output: '06-c5.jpg', label: '06-c5', move: 'c5' },
     { input: 'nc3.jpg', output: '07-nc3.jpg', label: '07-nc3', move: 'Nc3' }
 ];
@@ -142,7 +142,7 @@ function drawOccupancyOnOriginal(image, quad, occupiedIndices) {
 
     for (const index of occupiedIndices) {
         const { row, col } = cellIndexToCoords(index);
-        const point = boardPointToImage(quad, row + 0.5, col + 0.5);
+        const point = boardPointToImage(quad, col + 0.5, row + 0.5);
         cv.circle(image, new cv.Point(point.x, point.y), 9, new cv.Scalar(255, 64, 64, 255), -1);
         cv.circle(image, new cv.Point(point.x, point.y), 9, new cv.Scalar(255, 255, 255, 255), 2);
     }
@@ -154,8 +154,8 @@ function drawOccupancyOnWarp(image, occupiedIndices) {
     const cellSize = image.cols / 8;
     for (const index of occupiedIndices) {
         const { row, col } = cellIndexToCoords(index);
-        const x = Math.round((row + 0.5) * cellSize);
-        const y = Math.round((col + 0.5) * cellSize);
+        const x = Math.round((col + 0.5) * cellSize);
+        const y = Math.round((row + 0.5) * cellSize);
         cv.circle(image, new cv.Point(x, y), 9, new cv.Scalar(255, 64, 64, 255), -1);
         cv.circle(image, new cv.Point(x, y), 9, new cv.Scalar(255, 255, 255, 255), 2);
     }
