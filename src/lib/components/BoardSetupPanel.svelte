@@ -35,7 +35,7 @@
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
 	const OCCUPANCY_THRESHOLD_MIN = 0.8;
-	const OCCUPANCY_THRESHOLD_MAX = 2.2;
+	const OCCUPANCY_THRESHOLD_MAX = 4;
 	const OCCUPANCY_THRESHOLD_STEP = 0.05;
 
 	let {
