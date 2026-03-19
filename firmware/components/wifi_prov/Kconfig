@@ -1,0 +1,9 @@
+menu "WiFi Provisioning Configuration"
+    config USE_REAL_WIFI_PROV
+        bool "Use real WiFi/NVS/mDNS provisioning callbacks"
+        default n
+        help
+            When enabled, uses real ESP-IDF WiFi, NVS, and mDNS APIs
+            for provisioning. When disabled, mock callbacks that only
+            log to stdout are used (suitable for QEMU testing).
+endmenu
