@@ -178,7 +178,7 @@
 		dragHandleIndex = index;
 		event.preventDefault();
 		event.stopPropagation();
-		(event.currentTarget as SVGCircleElement | null)?.setPointerCapture(event.pointerId);
+		(event.currentTarget as SVGCircleElement | null)?.ownerSVGElement?.setPointerCapture?.(event.pointerId);
 		updateHandlePosition(index, event.clientX, event.clientY);
 	}
 
@@ -201,7 +201,7 @@
 
 	function endDrag(event: PointerEvent) {
 		if (dragHandleIndex === null) return;
-		(event.currentTarget as SVGSVGElement | null)?.releasePointerCapture?.(event.pointerId);
+		(event.currentTarget as SVGElement | null)?.releasePointerCapture?.(event.pointerId);
 		dragHandleIndex = null;
 	}
 
@@ -621,6 +621,12 @@
 				Drag a corner dot, or touch near a corner to move it. Auto-detect will try to snap the quad to the board.
 			</p>
 
+			{#if errorMessage}
+				<p class="inline-notice error">{errorMessage}</p>
+			{:else}
+				<p class="inline-notice">{statusMessage}</p>
+			{/if}
+
 			<div class="card-actions">
 				<button class="action-btn primary" type="button" onclick={autodetectBoard} disabled={!cameraFrameReady || !!busyLabel}>
 					Auto-detect board
@@ -661,12 +667,6 @@
 			</div>
 		</div>
 	</div>
-
-	{#if errorMessage}
-		<p class="notice error">{errorMessage}</p>
-	{:else}
-		<p class="notice">{statusMessage}</p>
-	{/if}
 
 	<canvas bind:this={snapshotCanvas} class="hidden-canvas" aria-hidden="true"></canvas>
 </section>
@@ -842,6 +842,20 @@
 		font-size: 0.92rem;
 	}
 
+	.inline-notice {
+		margin: 0.8rem 0 0;
+		padding: 0.75rem 0.9rem;
+		border-radius: 14px;
+		background: rgba(30, 41, 59, 0.72);
+		color: #dbeafe;
+		font-size: 0.92rem;
+	}
+
+	.inline-notice.error {
+		background: rgba(127, 29, 29, 0.28);
+		color: #fecaca;
+	}
+
 	.card-actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -907,15 +921,6 @@
 	.detail-list strong {
 		font-size: 0.98rem;
 		color: #f8fafc;
-	}
-
-	.notice {
-		margin: 1rem 0 0;
-		color: #dbeafe;
-	}
-
-	.notice.error {
-		color: #fca5a5;
 	}
 
 	.hidden-canvas {
