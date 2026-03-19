@@ -41,7 +41,7 @@ def test_provisioning_flow(dut: IdfDut):
     assert body == {"status": "ok"}
     assert resp.headers["Access-Control-Allow-Origin"] == "*"
 
-    # Test /capture endpoint returns image data
+    # Test /capture endpoint returns JPEG image data
     resp = urllib.request.urlopen(f"{base_url}/capture", timeout=5)
     assert resp.status == 200
     assert resp.headers["Content-Type"] == "image/jpeg"
@@ -51,4 +51,6 @@ def test_provisioning_flow(dut: IdfDut):
     assert width > 0
     assert height > 0
     image_data = resp.read()
-    assert len(image_data) == width * height  # mock frame is raw grayscale
+    assert len(image_data) > 0
+    assert image_data[:2] == b'\xff\xd8', "Missing JPEG SOI marker"
+    assert image_data[-2:] == b'\xff\xd9', "Missing JPEG EOI marker"
