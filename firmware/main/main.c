@@ -1,10 +1,14 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_netif.h"
+#include "esp_event.h"
 #include "camera_hal.h"
 #include "provisioning.h"
+#include "http_server.h"
 
 prov_ctx_t prov_ctx;
+static bool server_started = false;
 
 bool wifi_connect_mock(const char *ssid, const char *password) {
     printf("Connecting to Wi-Fi SSID: %s\n", ssid);
@@ -24,6 +28,9 @@ bool mdns_announce_mock(void) {
 void app_main(void)
 {
     printf("ESP32S3 initialization complete.\n");
+
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     prov_init(&prov_ctx);
     prov_set_wifi_connect_cb(&prov_ctx, wifi_connect_mock);
@@ -53,7 +60,14 @@ void app_main(void)
                 printf("Failed to acquire frame\n");
             }
         } else {
-            printf("Device is provisioned. Idling...\n");
+            if (!server_started) {
+                printf("Device is provisioned. Starting HTTP server...\n");
+                if (http_server_start()) {
+                    server_started = true;
+                } else {
+                    printf("Failed to start HTTP server, will retry...\n");
+                }
+            }
         }
         vTaskDelay(2000 / portTICK_PERIOD_MS);
     }

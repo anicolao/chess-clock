@@ -10,4 +10,6 @@ def test_provisioning_flow(dut: IdfDut):
     dut.expect("Announcing via mDNS...", timeout=5)
     dut.expect("QR code decoded successfully!", timeout=5)
     dut.expect("Transitioned to PROV_STATE_PROVISIONED", timeout=5)
-    dut.expect("Device is provisioned. Idling...", timeout=5)
+    dut.expect("Device is provisioned. Starting HTTP server...", timeout=5)
+    dut.expect("HTTP server started on port 80", timeout=5)
+    dut.expect("Registered endpoints: /api/status, /capture", timeout=5)
