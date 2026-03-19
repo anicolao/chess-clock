@@ -16,32 +16,59 @@ async function saveDocScreenshot(page: import('@playwright/test').Page, filename
 test.describe('Board Setup With Mocked Webcam', () => {
     test('Setup screen detects the board from a mocked webcam frame', async ({ page }, testInfo) => {
         const emptyBoardImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/empty.jpg'));
+        const initialSetupImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/initial_setup.jpg'));
 
         await page.addInitScript(({ imageUrl }) => {
+            let currentFrameImageUrl = imageUrl;
+
+            const loadFrameImage = (nextImageUrl: string) => {
+                const image = new Image();
+                image.src = nextImageUrl;
+                return new Promise<HTMLImageElement>((resolve, reject) => {
+                    image.onload = () => resolve(image);
+                    image.onerror = () => reject(new Error('Mock webcam image failed to load.'));
+                });
+            };
+
+            (window as typeof window & {
+                __setMockWebcamFrame?: (nextImageUrl: string) => Promise<void>;
+            }).__setMockWebcamFrame = async (nextImageUrl: string) => {
+                currentFrameImageUrl = nextImageUrl;
+            };
+
             Object.defineProperty(navigator, 'mediaDevices', {
                 value: {
                     getUserMedia: async () => {
-                        const image = new Image();
-                        image.src = imageUrl;
-                        await new Promise<void>((resolve, reject) => {
-                            image.onload = () => resolve();
-                            image.onerror = () => reject(new Error('Mock webcam image failed to load.'));
-                        });
-
                         const canvas = document.createElement('canvas');
-                        canvas.width = image.naturalWidth || image.width;
-                        canvas.height = image.naturalHeight || image.height;
                         const context = canvas.getContext('2d');
                         if (!context) {
                             throw new Error('Mock webcam canvas context is unavailable.');
                         }
 
-                        const drawFrame = () => {
-                            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                        let currentImage = await loadFrameImage(currentFrameImageUrl);
+                        canvas.width = currentImage.naturalWidth || currentImage.width;
+                        canvas.height = currentImage.naturalHeight || currentImage.height;
+
+                        const drawFrame = async () => {
+                            if (currentImage.src !== currentFrameImageUrl) {
+                                currentImage = await loadFrameImage(currentFrameImageUrl);
+                            }
+                            context.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
                         };
 
-                        drawFrame();
-                        return canvas.captureStream(1);
+                        await drawFrame();
+                        const redrawTimer = window.setInterval(() => {
+                            void drawFrame();
+                        }, 250);
+                        const stream = canvas.captureStream(4);
+                        for (const track of stream.getTracks()) {
+                            const originalStop = track.stop.bind(track);
+                            track.stop = () => {
+                                window.clearInterval(redrawTimer);
+                                originalStop();
+                            };
+                        }
+                        return stream;
                     }
                 },
                 configurable: true
@@ -59,6 +86,7 @@ test.describe('Board Setup With Mocked Webcam', () => {
         const saveCalibrationButton = page.getByRole('button', { name: 'Save calibration' });
         const liveFrameStatus = page.locator('.card-title').filter({ hasText: 'Live Frame' }).locator('span').nth(1);
         const inlineNotice = page.locator('.inline-notice');
+        const occupiedSquaresValue = page.locator('.preview-card .detail-list strong').nth(2);
 
         await startWebcamButton.click();
 
@@ -100,6 +128,9 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await page.mouse.up();
         await expect(quadPolygon).not.toHaveAttribute('points', detectedQuadPoints ?? '');
 
+        await autoDetectButton.click();
+        await expect(inlineNotice).toContainText('Board detected from', { timeout: 30000 });
+
         await captureReferenceButton.click();
         await expect(inlineNotice).toContainText('Empty-board reference captured.', { timeout: 15000 });
 
@@ -107,6 +138,12 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await expect(inlineNotice).toContainText('Calibration saved locally.');
 
         await expect(page.locator('.preview-card .detail-list strong').nth(1)).toHaveText('Captured');
+        await page.evaluate((nextImageUrl) => {
+            return (window as typeof window & {
+                __setMockWebcamFrame?: (url: string) => Promise<void>;
+            }).__setMockWebcamFrame?.(nextImageUrl);
+        }, initialSetupImageUrl);
+        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
         await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),

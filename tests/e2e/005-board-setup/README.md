@@ -11,14 +11,15 @@
 
 ---
 
-## Setup screen runs the browser OpenCV contour detector, detects the board on the mocked frame, and saves calibration
+## Setup screen runs the browser OpenCV contour detector, saves calibration, and tracks the initial setup occupancy
 
-![Setup screen runs the browser OpenCV contour detector, detects the board on the mocked frame, and saves calibration](./screenshots/001-001-quad-adjusted-and-saved.png)
+![Setup screen runs the browser OpenCV contour detector, saves calibration, and tracks the initial setup occupancy](./screenshots/001-001-quad-adjusted-and-saved.png)
 
 **Verifications:**
 - [x] Board auto-detect updates the quad from the mocked webcam frame
 - [x] Browser OpenCV contour detection finds the initial board quad from `tests/images/game/empty.jpg`
 - [x] A detected corner handle can still be dragged afterward
 - [x] The empty-board reference can be captured and saved locally
+- [x] Switching the mocked webcam to `tests/images/game/initial_setup.jpg` updates the live occupancy preview to 32 occupied squares
 
 ---

@@ -54,6 +54,7 @@
 	let statusMessage = $state('Load the live board, fine tune the quad, then capture an empty-board reference.');
 	let errorMessage = $state<string | null>(null);
 	let savedAt = $state<number | null>(null);
+	let previewOccupiedCount = $state<number | null>(null);
 	let dragHandleIndex = $state<number | null>(null);
 	let streamEnabled = $state(false);
 
@@ -62,6 +63,7 @@
 	let mediaStream: MediaStream | null = null;
 	let cvWarmupPromise: Promise<OpenCvModule | null> | null = null;
 	let autodetectTimeoutId: number | null = null;
+	let previewRefreshTimeoutId: number | null = null;
 	let autodetectAttemptsRemaining = 0;
 
 	const quadSegments = $derived([
@@ -88,6 +90,15 @@
 			streamVideo.srcObject = mediaStream;
 			void streamVideo.play().catch(() => {});
 		}
+	});
+
+	$effect(() => {
+		if (!cameraFrameReady || !referenceImageDataUrl || busyLabel) {
+			clearPreviewRefreshLoop();
+			return;
+		}
+
+		schedulePreviewRefresh(0);
 	});
 
 	onMount(async () => {
@@ -118,6 +129,7 @@
 		if (autodetectTimeoutId) {
 			clearTimeout(autodetectTimeoutId);
 		}
+		clearPreviewRefreshLoop();
 		stopBrowserCamera();
 	});
 
@@ -148,6 +160,30 @@
 			autodetectTimeoutId = null;
 		}
 		autodetectAttemptsRemaining = 0;
+	}
+
+	function clearPreviewRefreshLoop() {
+		if (previewRefreshTimeoutId) {
+			clearTimeout(previewRefreshTimeoutId);
+			previewRefreshTimeoutId = null;
+		}
+	}
+
+	function schedulePreviewRefresh(delayMs = 700) {
+		clearPreviewRefreshLoop();
+		if (!referenceImageDataUrl || !cameraFrameReady || busyLabel) return;
+
+		previewRefreshTimeoutId = window.setTimeout(() => {
+			void runPreviewRefresh();
+		}, delayMs);
+	}
+
+	async function runPreviewRefresh() {
+		previewRefreshTimeoutId = null;
+		if (!referenceImageDataUrl || !cameraFrameReady || busyLabel) return;
+
+		await renderPreview();
+		schedulePreviewRefresh();
 	}
 
 	async function detectBoard(frame: ImageData, fallbackCv?: OpenCvModule) {
@@ -564,6 +600,7 @@
 		context.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
 
 		if (!referenceImageDataUrl) {
+			previewOccupiedCount = null;
 			context.fillStyle = '#0f172a';
 			context.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
 			context.fillStyle = '#cbd5e1';
@@ -585,6 +622,7 @@
 		previewCanvas.height = WARP_SIZE;
 		context.putImageData(analysis.boardImageData, 0, 0);
 		drawOccupancyOverlay(context, analysis.occupiedIndices);
+		previewOccupiedCount = analysis.occupiedIndices.length;
 	}
 
 	function formatTime(timestamp: number | null) {
@@ -786,6 +824,10 @@
 				<div>
 					<span>Reference frame</span>
 					<strong>{hasReference ? 'Captured' : 'Missing'}</strong>
+				</div>
+				<div>
+					<span>Occupied squares</span>
+					<strong>{previewOccupiedCount === null ? '-' : previewOccupiedCount}</strong>
 				</div>
 				<div>
 					<span>Last saved</span>
