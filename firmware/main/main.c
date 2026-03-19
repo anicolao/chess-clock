@@ -2,17 +2,85 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
 #include "esp_netif.h"
 #include "esp_event.h"
+#include "esp_eth.h"
+#include "esp_log.h"
 #include "camera_hal.h"
 #include "provisioning.h"
 #include "http_server.h"
 #include "wifi_prov.h"
+#include "mdns.h"
 #include "sdkconfig.h"
+
+#if CONFIG_ETH_USE_OPENETH
+#include "esp_eth_mac_openeth.h"
+#endif
+
+static const char *TAG = "main";
 
 prov_ctx_t prov_ctx;
 static bool server_started = false;
 static bool self_test_done = false;
+
+#if CONFIG_ETH_USE_OPENETH
+#define ETH_GOT_IP_BIT BIT0
+static EventGroupHandle_t s_eth_event_group;
+static esp_ip4_addr_t s_device_ip;
+
+static void eth_event_handler(void *arg, esp_event_base_t event_base,
+                              int32_t event_id, void *event_data) {
+    if (event_base == IP_EVENT && event_id == IP_EVENT_ETH_GOT_IP) {
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+        s_device_ip = event->ip_info.ip;
+        ESP_LOGI(TAG, "Ethernet got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        xEventGroupSetBits(s_eth_event_group, ETH_GOT_IP_BIT);
+    }
+}
+
+static bool init_openeth(void) {
+    s_eth_event_group = xEventGroupCreate();
+
+    esp_event_handler_instance_t ip_handler;
+    esp_event_handler_instance_register(IP_EVENT, IP_EVENT_ETH_GOT_IP,
+                                        &eth_event_handler, NULL, &ip_handler);
+
+    eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+    esp_eth_mac_t *mac = esp_eth_mac_new_openeth(&mac_config);
+    if (!mac) {
+        ESP_LOGE(TAG, "Failed to create OpenETH MAC");
+        return false;
+    }
+
+    eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
+    esp_eth_phy_t *phy = esp_eth_phy_new_dp83848(&phy_config);
+
+    esp_eth_config_t eth_config = ETH_DEFAULT_CONFIG(mac, phy);
+    esp_eth_handle_t eth_handle = NULL;
+    if (esp_eth_driver_install(&eth_config, &eth_handle) != ESP_OK) {
+        ESP_LOGE(TAG, "Ethernet driver install failed");
+        return false;
+    }
+
+    esp_netif_config_t netif_cfg = ESP_NETIF_DEFAULT_ETH();
+    esp_netif_t *eth_netif = esp_netif_new(&netif_cfg);
+    esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handle));
+
+    esp_eth_start(eth_handle);
+    printf("OpenETH: Waiting for IP address...\n");
+
+    EventBits_t bits = xEventGroupWaitBits(s_eth_event_group, ETH_GOT_IP_BIT,
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(10000));
+    if (!(bits & ETH_GOT_IP_BIT)) {
+        ESP_LOGE(TAG, "Timeout waiting for Ethernet IP");
+        return false;
+    }
+
+    printf("OpenETH: Got IP " IPSTR "\n", IP2STR(&s_device_ip));
+    return true;
+}
+#endif
 
 #ifndef CONFIG_USE_REAL_WIFI_PROV
 static bool wifi_connect_mock(const char *ssid, const char *password) {
@@ -58,7 +126,61 @@ static void run_hardware_self_test(void) {
         printf("TEST NVS: Load roundtrip FAILED (ssid=%s, token=%s)\n", loaded_ssid, loaded_token);
     }
 
-    /* Test 2: mDNS service registration */
+#if CONFIG_ETH_USE_OPENETH
+    /* Test 2: Initialize QEMU Ethernet for network tests */
+    printf("TEST NET: Initializing OpenETH...\n");
+    bool net_ok = init_openeth();
+    if (!net_ok) {
+        printf("TEST NET: OpenETH init FAILED (no QEMU networking?)\n");
+        printf("TEST mDNS: SKIPPED (no network)\n");
+        printf("=== Self-Test Complete ===\n");
+        return;
+    }
+    printf("TEST NET: OpenETH OK\n");
+
+    /* Test 3: mDNS registration + discovery via network */
+    printf("TEST mDNS: Registering service...\n");
+    bool mdns_ok = wifi_prov_mdns_announce();
+    if (!mdns_ok) {
+        printf("TEST mDNS: Service registration FAILED\n");
+        printf("=== Self-Test Complete ===\n");
+        return;
+    }
+    printf("TEST mDNS: Service registered OK (chess-cam.local, _chessclock._tcp)\n");
+
+    /* Verify hostname is registered in mDNS */
+    printf("TEST mDNS: Checking hostname registration...\n");
+    if (mdns_hostname_exists("chess-cam")) {
+        printf("TEST mDNS: Hostname 'chess-cam' registered OK\n");
+    } else {
+        printf("TEST mDNS: Hostname 'chess-cam' NOT FOUND\n");
+    }
+
+    /* Look up our own service via the local mDNS state */
+    printf("TEST mDNS: Looking up _chessclock._tcp service...\n");
+    mdns_result_t *results = NULL;
+    esp_err_t err = mdns_lookup_selfhosted_service(NULL, "_chessclock", "_tcp", 1, &results);
+    if (err == ESP_OK && results) {
+        const char *found_host = results->hostname ? results->hostname : "?";
+        uint16_t found_port = results->port;
+        printf("TEST mDNS: Service discovered: %s.local port=%u\n", found_host, found_port);
+
+        bool host_ok = (strcmp(found_host, "chess-cam") == 0);
+        bool port_ok = (found_port == 80);
+
+        if (host_ok && port_ok) {
+            printf("TEST mDNS: Discovery OK (host=%s, port=%u, device_ip=" IPSTR ")\n",
+                   found_host, found_port, IP2STR(&s_device_ip));
+        } else {
+            printf("TEST mDNS: Discovery MISMATCH (host=%s, port=%u)\n",
+                   found_host, found_port);
+        }
+        mdns_query_results_free(results);
+    } else {
+        printf("TEST mDNS: Service lookup FAILED (%s)\n", esp_err_to_name(err));
+    }
+#else
+    /* No network available — just test mDNS API */
     printf("TEST mDNS: Registering service...\n");
     bool mdns_ok = wifi_prov_mdns_announce();
     if (mdns_ok) {
@@ -66,6 +188,7 @@ static void run_hardware_self_test(void) {
     } else {
         printf("TEST mDNS: Service registration FAILED\n");
     }
+#endif
 
     printf("=== Self-Test Complete ===\n");
 }
