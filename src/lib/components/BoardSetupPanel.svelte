@@ -11,20 +11,22 @@
 		type BoardCalibration
 	} from '$lib/board-calibration';
 	import { captureImageDataFromElement, imageDataToDataUrl, loadImageDataFromUrl } from '$lib/vision/browser-images';
-	import { estimateCheckerboardQuad } from '$lib/vision/checkerboard-fast';
+	import BoardDetectorWorker from '$lib/workers/board-detector.worker?worker&inline';
 	import {
 		analyzeBoardFrame,
+		localizeChessboardFromImageDataFast,
 		normalizeQuad,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
 
 	type OpenCvModule = typeof import('@techstark/opencv-js');
-
 	const HANDLE_RADIUS = 0.034;
 	const HANDLE_GRAB_RADIUS = 0.14;
-	const SETUP_ANALYSIS_MAX_DIMENSION = 384;
+	const SETUP_ANALYSIS_MAX_DIMENSION = 448;
 	const SETUP_REFERENCE_MAX_DIMENSION = 720;
+	const SETUP_AUTODETECT_ATTEMPTS = 6;
+	const SETUP_AUTODETECT_INTERVAL_MS = 200;
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
 
@@ -55,6 +57,18 @@
 	let cvModule: OpenCvModule | null = null;
 	let referenceImageData: ImageData | null = null;
 	let mediaStream: MediaStream | null = null;
+	let cvWarmupPromise: Promise<OpenCvModule | null> | null = null;
+	let autodetectTimeoutId: number | null = null;
+	let autodetectAttemptsRemaining = 0;
+	let detectionWorker: Worker | null = null;
+	let detectionRequestId = 0;
+	const pendingDetections = new Map<
+		number,
+		{
+			resolve: (detection: ReturnType<typeof localizeChessboardFromImageDataFast>) => void;
+			reject: (error: Error) => void;
+		}
+	>();
 
 	const quadSegments = $derived([
 		[normalizedQuad[0], normalizedQuad[1]],
@@ -83,6 +97,35 @@
 	});
 
 	onMount(async () => {
+		if (typeof Worker !== 'undefined') {
+			detectionWorker = new BoardDetectorWorker();
+			detectionWorker.onmessage = (
+				event: MessageEvent<
+					| {
+						id: number;
+						type: 'detect-result';
+						detection: ReturnType<typeof localizeChessboardFromImageDataFast>;
+					}
+					| {
+						id: number;
+						type: 'detect-error';
+						error: string;
+					}
+				>
+			) => {
+				const pendingDetection = pendingDetections.get(event.data.id);
+				if (!pendingDetection) return;
+
+				pendingDetections.delete(event.data.id);
+				if (event.data.type === 'detect-result') {
+					pendingDetection.resolve(event.data.detection);
+					return;
+				}
+
+				pendingDetection.reject(new Error(event.data.error));
+			};
+		}
+
 		const savedCalibration = loadBoardCalibration();
 		if (savedCalibration) {
 			cameraMode = savedCalibration.cameraMode;
@@ -107,10 +150,20 @@
 	});
 
 	onDestroy(() => {
+		for (const pendingDetection of pendingDetections.values()) {
+			pendingDetection.reject(new Error('Board detector worker was stopped.'));
+		}
+		pendingDetections.clear();
+		detectionWorker?.terminate();
+		detectionWorker = null;
+		if (autodetectTimeoutId) {
+			clearTimeout(autodetectTimeoutId);
+		}
 		stopBrowserCamera();
 	});
 
 	function stopBrowserCamera() {
+		clearAutodetectSession();
 		mediaStream?.getTracks().forEach((track) => track.stop());
 		mediaStream = null;
 	}
@@ -128,6 +181,33 @@
 			errorMessage = error instanceof Error ? error.message : 'Failed to load the saved empty-board reference.';
 			return null;
 		}
+	}
+
+	function clearAutodetectSession() {
+		if (autodetectTimeoutId) {
+			clearTimeout(autodetectTimeoutId);
+			autodetectTimeoutId = null;
+		}
+		autodetectAttemptsRemaining = 0;
+	}
+
+	async function detectBoardInWorker(frame: ImageData, fallbackCv: OpenCvModule) {
+		if (!detectionWorker) {
+			return localizeChessboardFromImageDataFast(fallbackCv, frame);
+		}
+
+		return new Promise<ReturnType<typeof localizeChessboardFromImageDataFast>>((resolve, reject) => {
+			const requestId = detectionRequestId++;
+			pendingDetections.set(requestId, {
+				resolve,
+				reject
+			});
+			detectionWorker!.postMessage({
+				id: requestId,
+				type: 'detect',
+				imageData: frame
+			});
+		});
 	}
 
 	function updateHandlePosition(index: number, clientX: number, clientY: number) {
@@ -221,6 +301,7 @@
 	}
 
 	function selectSource(mode: CameraMode) {
+		clearAutodetectSession();
 		cameraMode = mode;
 		streamEnabled = false;
 		cameraFrameReady = false;
@@ -260,12 +341,13 @@
 				audio: false
 			});
 
-			if (streamVideo) {
-				streamVideo.srcObject = mediaStream;
-				await streamVideo.play().catch(() => {});
-			}
-			statusMessage = 'Browser camera connected. Drag a corner handle or run auto-detect.';
-		} catch (error) {
+				if (streamVideo) {
+					streamVideo.srcObject = mediaStream;
+					await streamVideo.play().catch(() => {});
+				}
+				statusMessage = 'Browser camera connected. Drag a corner handle or run auto-detect.';
+				void warmCvModule();
+			} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to open the browser camera.';
 			statusMessage = 'Camera permission or access failed.';
 		} finally {
@@ -305,28 +387,94 @@
 		}
 	}
 
-	async function autodetectBoard() {
-		busyLabel = 'Detecting board';
-		errorMessage = null;
-		statusMessage = 'Scanning the current frame for a checkerboard pattern.';
+	async function warmCvModule() {
+		if (cvModule) return cvModule;
+		if (cvWarmupPromise) return cvWarmupPromise;
+
+		cvWarmupPromise = loadOpenCv()
+			.then((loadedCv) => {
+				cvModule = loadedCv;
+				if (busyLabel === 'Detecting board' && autodetectAttemptsRemaining > 0) {
+					statusMessage = 'Vision ready. Scanning live frames for the board.';
+				}
+				return loadedCv;
+			})
+			.catch((error) => {
+				errorMessage = error instanceof Error ? error.message : 'Failed to load OpenCV.';
+				return null;
+			})
+			.finally(() => {
+				cvWarmupPromise = null;
+			});
+
+		return cvWarmupPromise;
+	}
+
+	function scheduleAutodetectTick(delayMs: number) {
+		if (autodetectTimeoutId) {
+			clearTimeout(autodetectTimeoutId);
+		}
+		autodetectTimeoutId = window.setTimeout(() => {
+			void runAutodetectTick();
+		}, delayMs);
+	}
+
+	async function runAutodetectTick() {
+		if (autodetectAttemptsRemaining <= 0) {
+			busyLabel = null;
+			statusMessage = 'No chessboard candidate was found in the live frames. Drag the corners manually or try again.';
+			clearAutodetectSession();
+			return;
+		}
+
+		if (!cameraFrameReady || dragHandleIndex !== null) {
+			scheduleAutodetectTick(SETUP_AUTODETECT_INTERVAL_MS);
+			return;
+		}
+
+		const activeCv = cvModule ?? await warmCvModule();
+		if (!activeCv) {
+			busyLabel = null;
+			clearAutodetectSession();
+			return;
+		}
+
+		const attemptIndex = SETUP_AUTODETECT_ATTEMPTS - autodetectAttemptsRemaining + 1;
+		statusMessage = `Scanning live frame ${attemptIndex} of ${SETUP_AUTODETECT_ATTEMPTS} for the board.`;
+		await waitForNextPaint();
 
 		try {
-			await waitForNextPaint();
 			const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
-			const estimatedQuad = estimateCheckerboardQuad(frame);
-			if (!estimatedQuad) {
-				throw new Error('No chessboard candidate was found in the current frame.');
+			const detection = await detectBoardInWorker(frame, activeCv);
+			if (detection) {
+				normalizedQuad = normalizeQuad(detection.quad, frame.width, frame.height);
+				detectedBoardScore = detection.score;
+				statusMessage = `Board detected from ${detection.selectedCount} square candidates.`;
+				busyLabel = null;
+				clearAutodetectSession();
+				await renderPreview();
+				return;
 			}
-
-			normalizedQuad = normalizeQuad(estimatedQuad, frame.width, frame.height);
-			detectedBoardScore = null;
-			statusMessage = 'Board estimate applied. Drag the corners to match the board precisely.';
-			await renderPreview();
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Board detection failed.';
-		} finally {
 			busyLabel = null;
+			clearAutodetectSession();
+			return;
 		}
+
+		autodetectAttemptsRemaining -= 1;
+		scheduleAutodetectTick(SETUP_AUTODETECT_INTERVAL_MS);
+	}
+
+	async function autodetectBoard() {
+		errorMessage = null;
+		statusMessage = 'Loading OpenCV so the board can be analyzed.';
+
+		clearAutodetectSession();
+		autodetectAttemptsRemaining = SETUP_AUTODETECT_ATTEMPTS;
+		busyLabel = 'Detecting board';
+		void warmCvModule();
+		scheduleAutodetectTick(0);
 	}
 
 	async function captureReference() {
@@ -533,6 +681,7 @@
 							cameraFrameReady = true;
 							statusMessage = 'Live camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
+							void warmCvModule();
 						}}
 					></video>
 				{:else}
@@ -546,6 +695,7 @@
 							cameraFrameReady = true;
 							statusMessage = 'Remote camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
+							void warmCvModule();
 						}}
 						onerror={() => {
 							cameraFrameReady = false;
