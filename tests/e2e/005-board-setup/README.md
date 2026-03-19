@@ -1,8 +1,8 @@
-# Test: Setup screen works with an empty-board webcam frame
+# Test: Setup screen detects the board from a mocked webcam frame
 
-## Settings screen connects to the mocked webcam and shows the live board frame
+## Settings screen connects to the mocked webcam and shows the live game board frame
 
-![Settings screen connects to the mocked webcam and shows the live board frame](./screenshots/000-000-stream-ready.png)
+![Settings screen connects to the mocked webcam and shows the live game board frame](./screenshots/000-000-stream-ready.png)
 
 **Verifications:**
 - [x] Live frame is streaming
@@ -10,13 +10,13 @@
 
 ---
 
-## Setup screen lets the user adjust the quad over the mocked webcam frame and save calibration
+## Setup screen detects the board and saves the empty-board calibration
 
-![Setup screen lets the user adjust the quad over the mocked webcam frame and save calibration](./screenshots/001-001-quad-adjusted-and-saved.png)
+![Setup screen detects the board and saves the empty-board calibration](./screenshots/001-001-quad-adjusted-and-saved.png)
 
 **Verifications:**
-- [x] Dragging a corner updates the board quad
-- [x] Manual calibration can be saved after adjustment
+- [x] Board auto-detect updates the quad from the mocked webcam frame
+- [x] A detected corner handle can still be dragged afterward
+- [x] The empty-board reference can be captured and saved locally
 
 ---
-

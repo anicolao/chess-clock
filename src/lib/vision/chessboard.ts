@@ -782,6 +782,611 @@ export function localizeChessboardFromImageDataFast(cv: OpenCvModule, imageData:
 		: null;
 }
 
+export function localizeChessboardFromImageDataByCorners(
+	cv: OpenCvModule,
+	imageData: ImageData,
+	onProgress?: (stage: string) => void
+) {
+	onProgress?.('Preparing frame for corner detection.');
+	const src = matFromImageData(cv, imageData);
+	const gray = new cv.Mat();
+	cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+
+	const corners = new cv.Mat();
+	const patternSize = new cv.Size(7, 7);
+	const equalized = new cv.Mat();
+	onProgress?.('Equalizing grayscale image.');
+	cv.equalizeHist(gray, equalized);
+
+	const cornerAttempts: InstanceType<OpenCvModule['Mat']>[] = [gray, equalized];
+	const standardFlags = cv.CALIB_CB_ADAPTIVE_THRESH + cv.CALIB_CB_NORMALIZE_IMAGE;
+
+	let found = false;
+	for (const source of cornerAttempts) {
+		onProgress?.('Searching for chessboard corners.');
+		if (typeof cv.findChessboardCorners === 'function') {
+			found = cv.findChessboardCorners(source, patternSize, corners, standardFlags);
+		}
+
+		if (found) break;
+	}
+
+	if (found && typeof cv.cornerSubPix === 'function') {
+		onProgress?.('Refining corner positions.');
+		cv.cornerSubPix(
+			gray,
+			corners,
+			new cv.Size(5, 5),
+			new cv.Size(-1, -1),
+			new cv.TermCriteria(cv.TermCriteria_EPS + cv.TermCriteria_MAX_ITER, 30, 0.1)
+		);
+	}
+
+	let detection: {
+		quad: [ImagePoint, ImagePoint, ImagePoint, ImagePoint];
+		score: number;
+		candidateCount: number;
+		selectedCount: number;
+	} | null = null;
+
+	if (found && corners.rows >= 49) {
+		onProgress?.('Projecting the outer board quad.');
+		const points: ImagePoint[] = [];
+		for (let index = 0; index < corners.rows; index++) {
+			points.push({
+				x: corners.data32F[index * 2],
+				y: corners.data32F[index * 2 + 1]
+			});
+		}
+
+		const at = (row: number, col: number) => points[row * 7 + col];
+		const extrapolate = (anchor: ImagePoint, horizontal: ImagePoint, vertical: ImagePoint) => ({
+			x: anchor.x - horizontal.x * 0.5 - vertical.x * 0.5,
+			y: anchor.y - horizontal.y * 0.5 - vertical.y * 0.5
+		});
+
+		const topLeft = extrapolate(
+			at(0, 0),
+			{ x: at(0, 1).x - at(0, 0).x, y: at(0, 1).y - at(0, 0).y },
+			{ x: at(1, 0).x - at(0, 0).x, y: at(1, 0).y - at(0, 0).y }
+		);
+		const topRight = extrapolate(
+			at(0, 6),
+			{ x: at(0, 5).x - at(0, 6).x, y: at(0, 5).y - at(0, 6).y },
+			{ x: at(1, 6).x - at(0, 6).x, y: at(1, 6).y - at(0, 6).y }
+		);
+		const bottomRight = extrapolate(
+			at(6, 6),
+			{ x: at(6, 5).x - at(6, 6).x, y: at(6, 5).y - at(6, 6).y },
+			{ x: at(5, 6).x - at(6, 6).x, y: at(5, 6).y - at(6, 6).y }
+		);
+		const bottomLeft = extrapolate(
+			at(6, 0),
+			{ x: at(6, 1).x - at(6, 0).x, y: at(6, 1).y - at(6, 0).y },
+			{ x: at(5, 0).x - at(6, 0).x, y: at(5, 0).y - at(6, 0).y }
+		);
+
+		const orderedQuad = orderQuadPoints([topLeft, topRight, bottomRight, bottomLeft]) as [
+			ImagePoint,
+			ImagePoint,
+			ImagePoint,
+			ImagePoint
+		];
+		detection = {
+			quad: orderedQuad,
+			score: quadArea(orderedQuad),
+			candidateCount: 49,
+			selectedCount: 49
+		};
+	}
+
+	corners.delete();
+	equalized.delete();
+	gray.delete();
+	src.delete();
+
+	return detection;
+}
+
+function clampQuadPoint(point: ImagePoint, cols: number, rows: number) {
+	return {
+		x: clamp(point.x, -cols * 0.12, cols * 1.12),
+		y: clamp(point.y, -rows * 0.12, rows * 1.12)
+	};
+}
+
+function scoreBoardAppearanceHypothesis(
+	cv: OpenCvModule,
+	rgb: InstanceType<OpenCvModule['Mat']>,
+	gray: InstanceType<OpenCvModule['Mat']>,
+	quad: ImagePoint[],
+	cols: number,
+	rows: number
+) {
+	if (!isConvexQuad(quad)) {
+		return Number.NEGATIVE_INFINITY;
+	}
+
+	const appearance = getBoardAppearanceMetrics(cv, rgb, gray, quad);
+	const area = quadArea(quad);
+	const center = meanPoint(quad);
+	const centerDistance = Math.hypot(center.x - cols / 2, center.y - rows / 2);
+	const boundsPenalty = getOutOfBoundsPenalty(quad, cols, rows);
+
+	return (
+		appearance.colorSeparation * 0.9
+		- appearance.classSpread * 0.45
+		- appearance.averageCellStd * 0.55
+		+ appearance.lineDelta * 11
+		+ appearance.borderStrength * 0.28
+		+ Math.sqrt(Math.max(0, area)) * 0.6
+		- centerDistance * 0.18
+		- boundsPenalty * 95
+	);
+}
+
+function generateSearchSeedQuads(cols: number, rows: number) {
+	const centerX = cols / 2;
+	const centerY = rows / 2;
+	const base = Math.min(cols, rows);
+	const candidateQuads: ImagePoint[][] = [];
+	const heightScales = [0.34, 0.44, 0.54];
+	const widthScales = [0.36, 0.48, 0.6];
+	const topRatios = [0.62, 0.76, 0.9];
+	const centerYOffsets = [-0.06, 0, 0.06];
+	const shearRatios = [-0.08, 0, 0.08];
+
+	for (const widthScale of widthScales) {
+		for (const heightScale of heightScales) {
+			for (const topRatio of topRatios) {
+				for (const centerYOffset of centerYOffsets) {
+					for (const shearRatio of shearRatios) {
+						const halfBottomWidth = base * widthScale / 2;
+						const halfTopWidth = halfBottomWidth * topRatio;
+						const halfHeight = base * heightScale / 2;
+						const cy = centerY + rows * centerYOffset;
+						const shear = halfBottomWidth * shearRatio;
+						candidateQuads.push([
+							{ x: centerX - halfTopWidth + shear, y: cy - halfHeight },
+							{ x: centerX + halfTopWidth + shear, y: cy - halfHeight },
+							{ x: centerX + halfBottomWidth - shear, y: cy + halfHeight },
+							{ x: centerX - halfBottomWidth - shear, y: cy + halfHeight }
+						]);
+					}
+				}
+			}
+		}
+	}
+
+	return candidateQuads;
+}
+
+function optimizeBoardByAppearance(
+	cv: OpenCvModule,
+	rgb: InstanceType<OpenCvModule['Mat']>,
+	gray: InstanceType<OpenCvModule['Mat']>,
+	initialQuad: ImagePoint[],
+	cols: number,
+	rows: number
+) {
+	let bestQuad = initialQuad.map((point) => ({ ...point }));
+	let bestScore = scoreBoardAppearanceHypothesis(cv, rgb, gray, bestQuad, cols, rows);
+	const stepSizes = [42, 24, 12, 6, 3];
+
+	for (const step of stepSizes) {
+		let improved = true;
+		while (improved) {
+			improved = false;
+
+			const candidateTransforms: ImagePoint[][] = [];
+			for (let index = 0; index < 4; index++) {
+				for (const dx of [-step, 0, step]) {
+					for (const dy of [-step, 0, step]) {
+						if (dx === 0 && dy === 0) continue;
+						const nextQuad = bestQuad.map((point) => ({ ...point }));
+						nextQuad[index] = clampQuadPoint(
+							{ x: nextQuad[index].x + dx, y: nextQuad[index].y + dy },
+							cols,
+							rows
+						);
+						candidateTransforms.push(nextQuad);
+					}
+				}
+			}
+
+			const topEdgeUp = bestQuad.map((point) => ({ ...point }));
+			topEdgeUp[0] = clampQuadPoint({ x: topEdgeUp[0].x, y: topEdgeUp[0].y - step }, cols, rows);
+			topEdgeUp[1] = clampQuadPoint({ x: topEdgeUp[1].x, y: topEdgeUp[1].y - step }, cols, rows);
+			candidateTransforms.push(topEdgeUp);
+
+			const topEdgeDown = bestQuad.map((point) => ({ ...point }));
+			topEdgeDown[0] = clampQuadPoint({ x: topEdgeDown[0].x, y: topEdgeDown[0].y + step }, cols, rows);
+			topEdgeDown[1] = clampQuadPoint({ x: topEdgeDown[1].x, y: topEdgeDown[1].y + step }, cols, rows);
+			candidateTransforms.push(topEdgeDown);
+
+			const bottomEdgeUp = bestQuad.map((point) => ({ ...point }));
+			bottomEdgeUp[2] = clampQuadPoint({ x: bottomEdgeUp[2].x, y: bottomEdgeUp[2].y - step }, cols, rows);
+			bottomEdgeUp[3] = clampQuadPoint({ x: bottomEdgeUp[3].x, y: bottomEdgeUp[3].y - step }, cols, rows);
+			candidateTransforms.push(bottomEdgeUp);
+
+			const bottomEdgeDown = bestQuad.map((point) => ({ ...point }));
+			bottomEdgeDown[2] = clampQuadPoint({ x: bottomEdgeDown[2].x, y: bottomEdgeDown[2].y + step }, cols, rows);
+			bottomEdgeDown[3] = clampQuadPoint({ x: bottomEdgeDown[3].x, y: bottomEdgeDown[3].y + step }, cols, rows);
+			candidateTransforms.push(bottomEdgeDown);
+
+			const leftEdgeLeft = bestQuad.map((point) => ({ ...point }));
+			leftEdgeLeft[0] = clampQuadPoint({ x: leftEdgeLeft[0].x - step, y: leftEdgeLeft[0].y }, cols, rows);
+			leftEdgeLeft[3] = clampQuadPoint({ x: leftEdgeLeft[3].x - step, y: leftEdgeLeft[3].y }, cols, rows);
+			candidateTransforms.push(leftEdgeLeft);
+
+			const leftEdgeRight = bestQuad.map((point) => ({ ...point }));
+			leftEdgeRight[0] = clampQuadPoint({ x: leftEdgeRight[0].x + step, y: leftEdgeRight[0].y }, cols, rows);
+			leftEdgeRight[3] = clampQuadPoint({ x: leftEdgeRight[3].x + step, y: leftEdgeRight[3].y }, cols, rows);
+			candidateTransforms.push(leftEdgeRight);
+
+			const rightEdgeLeft = bestQuad.map((point) => ({ ...point }));
+			rightEdgeLeft[1] = clampQuadPoint({ x: rightEdgeLeft[1].x - step, y: rightEdgeLeft[1].y }, cols, rows);
+			rightEdgeLeft[2] = clampQuadPoint({ x: rightEdgeLeft[2].x - step, y: rightEdgeLeft[2].y }, cols, rows);
+			candidateTransforms.push(rightEdgeLeft);
+
+			const rightEdgeRight = bestQuad.map((point) => ({ ...point }));
+			rightEdgeRight[1] = clampQuadPoint({ x: rightEdgeRight[1].x + step, y: rightEdgeRight[1].y }, cols, rows);
+			rightEdgeRight[2] = clampQuadPoint({ x: rightEdgeRight[2].x + step, y: rightEdgeRight[2].y }, cols, rows);
+			candidateTransforms.push(rightEdgeRight);
+
+			for (const candidateQuad of candidateTransforms) {
+				const score = scoreBoardAppearanceHypothesis(cv, rgb, gray, candidateQuad, cols, rows);
+				if (score > bestScore) {
+					bestQuad = candidateQuad;
+					bestScore = score;
+					improved = true;
+				}
+			}
+		}
+	}
+
+	return {
+		quad: bestQuad as [ImagePoint, ImagePoint, ImagePoint, ImagePoint],
+		score: bestScore
+	};
+}
+
+export function localizeChessboardFromImageDataByWarpSearch(
+	cv: OpenCvModule,
+	imageData: ImageData
+) {
+	const src = matFromImageData(cv, imageData);
+	const rgb = new cv.Mat();
+	const gray = new cv.Mat();
+	cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB, 0);
+	cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+
+	let bestDetection: {
+		quad: [ImagePoint, ImagePoint, ImagePoint, ImagePoint];
+		score: number;
+	} | null = null;
+
+	for (const seed of generateSearchSeedQuads(src.cols, src.rows)) {
+		const detection = optimizeBoardByAppearance(cv, rgb, gray, seed, src.cols, src.rows);
+		if (!bestDetection || detection.score > bestDetection.score) {
+			bestDetection = detection;
+		}
+	}
+
+	src.delete();
+	rgb.delete();
+	gray.delete();
+
+	return bestDetection
+		? {
+			quad: bestDetection.quad,
+			score: bestDetection.score,
+			candidateCount: 0,
+			selectedCount: 0
+		}
+		: null;
+}
+
+type RgbaFrame = {
+	width: number;
+	height: number;
+	data: Uint8ClampedArray | Uint8Array;
+};
+
+function createGrayBuffer(frame: RgbaFrame) {
+	const gray = new Float32Array(frame.width * frame.height);
+	for (let index = 0; index < gray.length; index++) {
+		const offset = index * 4;
+		gray[index] = (
+			frame.data[offset] * 0.299
+			+ frame.data[offset + 1] * 0.587
+			+ frame.data[offset + 2] * 0.114
+		);
+	}
+	return gray;
+}
+
+function solvePerspectiveFromQuad(quad: ImagePoint[]) {
+	const matrix: number[][] = [];
+	const values: number[] = [];
+	const boardPoints = [
+		[0, 0],
+		[1, 0],
+		[1, 1],
+		[0, 1]
+	] as const;
+
+	for (let index = 0; index < 4; index++) {
+		const [u, v] = boardPoints[index];
+		const { x, y } = quad[index];
+		matrix.push([u, v, 1, 0, 0, 0, -u * x, -v * x]);
+		values.push(x);
+		matrix.push([0, 0, 0, u, v, 1, -u * y, -v * y]);
+		values.push(y);
+	}
+
+	for (let pivot = 0; pivot < 8; pivot++) {
+		let pivotRow = pivot;
+		for (let row = pivot + 1; row < 8; row++) {
+			if (Math.abs(matrix[row][pivot]) > Math.abs(matrix[pivotRow][pivot])) {
+				pivotRow = row;
+			}
+		}
+
+		if (Math.abs(matrix[pivotRow][pivot]) < 1e-8) {
+			return null;
+		}
+
+		[matrix[pivot], matrix[pivotRow]] = [matrix[pivotRow], matrix[pivot]];
+		[values[pivot], values[pivotRow]] = [values[pivotRow], values[pivot]];
+
+		const divisor = matrix[pivot][pivot];
+		for (let column = pivot; column < 8; column++) {
+			matrix[pivot][column] /= divisor;
+		}
+		values[pivot] /= divisor;
+
+		for (let row = 0; row < 8; row++) {
+			if (row === pivot) continue;
+			const factor = matrix[row][pivot];
+			if (factor === 0) continue;
+			for (let column = pivot; column < 8; column++) {
+				matrix[row][column] -= factor * matrix[pivot][column];
+			}
+			values[row] -= factor * values[pivot];
+		}
+	}
+
+	return {
+		a: values[0],
+		b: values[1],
+		c: values[2],
+		d: values[3],
+		e: values[4],
+		f: values[5],
+		g: values[6],
+		h: values[7]
+	};
+}
+
+function mapBoardPointToImage(
+	transform: ReturnType<typeof solvePerspectiveFromQuad>,
+	u: number,
+	v: number
+) {
+	if (!transform) return null;
+	const denominator = transform.g * u + transform.h * v + 1;
+	if (Math.abs(denominator) < 1e-8) return null;
+	return {
+		x: (transform.a * u + transform.b * v + transform.c) / denominator,
+		y: (transform.d * u + transform.e * v + transform.f) / denominator
+	};
+}
+
+function sampleGrayBilinear(gray: Float32Array, width: number, height: number, x: number, y: number) {
+	if (x < 0 || y < 0 || x > width - 1 || y > height - 1) {
+		return null;
+	}
+
+	const x0 = Math.floor(x);
+	const y0 = Math.floor(y);
+	const x1 = Math.min(width - 1, x0 + 1);
+	const y1 = Math.min(height - 1, y0 + 1);
+	const dx = x - x0;
+	const dy = y - y0;
+
+	const top = gray[y0 * width + x0] * (1 - dx) + gray[y0 * width + x1] * dx;
+	const bottom = gray[y1 * width + x0] * (1 - dx) + gray[y1 * width + x1] * dx;
+	return top * (1 - dy) + bottom * dy;
+}
+
+function scoreBoardAppearanceFromGray(
+	gray: Float32Array,
+	width: number,
+	height: number,
+	quad: ImagePoint[]
+) {
+	if (!isConvexQuad(quad)) {
+		return Number.NEGATIVE_INFINITY;
+	}
+
+	const transform = solvePerspectiveFromQuad(quad);
+	if (!transform) {
+		return Number.NEGATIVE_INFINITY;
+	}
+
+	const evenMeans: number[] = [];
+	const oddMeans: number[] = [];
+	const cellStdDeviations: number[] = [];
+	let outOfBoundsSamples = 0;
+
+	for (let row = 0; row < 8; row++) {
+		for (let col = 0; col < 8; col++) {
+			const samples: number[] = [];
+			for (const dv of [0.28, 0.5, 0.72]) {
+				for (const du of [0.28, 0.5, 0.72]) {
+					const mapped = mapBoardPointToImage(transform, (col + du) / 8, (row + dv) / 8);
+					if (!mapped) {
+						outOfBoundsSamples++;
+						continue;
+					}
+
+					const sample = sampleGrayBilinear(gray, width, height, mapped.x, mapped.y);
+					if (sample === null) {
+						outOfBoundsSamples++;
+						continue;
+					}
+					samples.push(sample);
+				}
+			}
+
+			if (samples.length === 0) {
+				return Number.NEGATIVE_INFINITY;
+			}
+
+			const average = mean(samples);
+			const variance = mean(samples.map((value) => (value - average) ** 2));
+			cellStdDeviations.push(Math.sqrt(variance));
+
+			if ((row + col) % 2 === 0) evenMeans.push(average);
+			else oddMeans.push(average);
+		}
+	}
+
+	let gridContrast = 0;
+	let midCellContrast = 0;
+	let gridContrastCount = 0;
+	let midCellContrastCount = 0;
+
+	for (let row = 0; row < 8; row++) {
+		for (let boundary = 1; boundary < 8; boundary++) {
+			for (const dv of [0.25, 0.5, 0.75]) {
+				const left = mapBoardPointToImage(transform, (boundary - 0.08) / 8, (row + dv) / 8);
+				const right = mapBoardPointToImage(transform, (boundary + 0.08) / 8, (row + dv) / 8);
+				if (!left || !right) continue;
+				const leftSample = sampleGrayBilinear(gray, width, height, left.x, left.y);
+				const rightSample = sampleGrayBilinear(gray, width, height, right.x, right.y);
+				if (leftSample === null || rightSample === null) continue;
+				gridContrast += Math.abs(leftSample - rightSample);
+				gridContrastCount++;
+			}
+		}
+
+		for (let mid = 0; mid < 8; mid++) {
+			for (const dv of [0.25, 0.5, 0.75]) {
+				const left = mapBoardPointToImage(transform, (mid + 0.42) / 8, (row + dv) / 8);
+				const right = mapBoardPointToImage(transform, (mid + 0.58) / 8, (row + dv) / 8);
+				if (!left || !right) continue;
+				const leftSample = sampleGrayBilinear(gray, width, height, left.x, left.y);
+				const rightSample = sampleGrayBilinear(gray, width, height, right.x, right.y);
+				if (leftSample === null || rightSample === null) continue;
+				midCellContrast += Math.abs(leftSample - rightSample);
+				midCellContrastCount++;
+			}
+		}
+	}
+
+	const evenMean = mean(evenMeans);
+	const oddMean = mean(oddMeans);
+	const classSpread = mean(evenMeans.map((value) => Math.abs(value - evenMean)))
+		+ mean(oddMeans.map((value) => Math.abs(value - oddMean)));
+	const area = quadArea(quad);
+	const center = meanPoint(quad);
+	const centerDistance = Math.hypot(center.x - width / 2, center.y - height / 2);
+	const boundsPenalty = getOutOfBoundsPenalty(quad, width, height) + outOfBoundsSamples / 120;
+
+	return (
+		Math.abs(evenMean - oddMean) * 1.8
+		- classSpread * 0.9
+		- mean(cellStdDeviations) * 1.1
+		+ (gridContrastCount > 0 ? gridContrast / gridContrastCount : 0) * 1.4
+		- (midCellContrastCount > 0 ? midCellContrast / midCellContrastCount : 0) * 0.9
+		+ Math.sqrt(Math.max(0, area)) * 0.35
+		- centerDistance * 0.16
+		- boundsPenalty * 120
+	);
+}
+
+function optimizeBoardByGraySearch(
+	gray: Float32Array,
+	width: number,
+	height: number,
+	initialQuad: ImagePoint[]
+) {
+	let bestQuad = initialQuad.map((point) => ({ ...point }));
+	let bestScore = scoreBoardAppearanceFromGray(gray, width, height, bestQuad);
+	const stepSizes = [36, 18, 9, 4, 2];
+
+	for (const step of stepSizes) {
+		let improved = true;
+		while (improved) {
+			improved = false;
+			const candidateTransforms: ImagePoint[][] = [];
+
+			for (let index = 0; index < 4; index++) {
+				for (const dx of [-step, 0, step]) {
+					for (const dy of [-step, 0, step]) {
+						if (dx === 0 && dy === 0) continue;
+						const nextQuad = bestQuad.map((point) => ({ ...point }));
+						nextQuad[index] = clampQuadPoint(
+							{ x: nextQuad[index].x + dx, y: nextQuad[index].y + dy },
+							width,
+							height
+						);
+						candidateTransforms.push(nextQuad);
+					}
+				}
+			}
+
+			for (const candidateQuad of candidateTransforms) {
+				const score = scoreBoardAppearanceFromGray(gray, width, height, candidateQuad);
+				if (score > bestScore) {
+					bestQuad = candidateQuad;
+					bestScore = score;
+					improved = true;
+				}
+			}
+		}
+	}
+
+	return {
+		quad: bestQuad as [ImagePoint, ImagePoint, ImagePoint, ImagePoint],
+		score: bestScore
+	};
+}
+
+export function localizeChessboardFromImageDataByGridSearch(frame: RgbaFrame) {
+	const gray = createGrayBuffer(frame);
+	const seeds = generateSearchSeedQuads(frame.width, frame.height)
+		.map((quad) => ({
+			quad,
+			score: scoreBoardAppearanceFromGray(gray, frame.width, frame.height, quad)
+		}))
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 6);
+
+	let bestDetection: {
+		quad: [ImagePoint, ImagePoint, ImagePoint, ImagePoint];
+		score: number;
+	} | null = null;
+
+	for (const seed of seeds) {
+		const detection = optimizeBoardByGraySearch(gray, frame.width, frame.height, seed.quad);
+		if (!bestDetection || detection.score > bestDetection.score) {
+			bestDetection = detection;
+		}
+	}
+
+	return bestDetection
+		? {
+			quad: bestDetection.quad,
+			score: bestDetection.score,
+			candidateCount: seeds.length,
+			selectedCount: seeds.length
+		}
+		: null;
+}
+
 function scoreOccupancyCell(
 	gray: InstanceType<OpenCvModule['Mat']>,
 	referenceGray: InstanceType<OpenCvModule['Mat']> | null,
