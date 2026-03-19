@@ -1,6 +1,7 @@
 import type { BoardCalibration, NormalizedPoint } from '$lib/board-calibration';
 
-export const WARP_SIZE = 192;
+export const WARP_SIZE = 320;
+const OCCUPANCY_BOARD_INSET_CELLS = 0.45;
 
 export type ImagePoint = { x: number; y: number };
 type OpenCvModule = typeof import('@techstark/opencv-js');
@@ -181,6 +182,145 @@ function sampleGrayStats(
 		mean: average,
 		std: Math.sqrt(Math.max(0, sumSq / count - average * average)),
 		edge: edge / (count * 2)
+	};
+}
+
+function sampleGrayComparisonStats(
+	gray: InstanceType<OpenCvModule['Mat']>,
+	referenceGray: InstanceType<OpenCvModule['Mat']>,
+	x0: number,
+	y0: number,
+	x1: number,
+	y1: number
+) {
+	let sum = 0;
+	let sumSq = 0;
+	let edge = 0;
+	let referenceSum = 0;
+	let referenceSumSq = 0;
+	let referenceEdge = 0;
+	let diffSum = 0;
+	let diffSumSq = 0;
+	let absDiff = 0;
+	let count = 0;
+
+	for (let y = y0; y < y1; y++) {
+		for (let x = x0; x < x1; x++) {
+			const value = gray.ucharPtr(y, x)[0];
+			const referenceValue = referenceGray.ucharPtr(y, x)[0];
+			const diff = value - referenceValue;
+
+			sum += value;
+			sumSq += value * value;
+			referenceSum += referenceValue;
+			referenceSumSq += referenceValue * referenceValue;
+			diffSum += diff;
+			diffSumSq += diff * diff;
+			absDiff += Math.abs(diff);
+
+			if (x > 0 && x < gray.cols - 1 && y > 0 && y < gray.rows - 1) {
+				edge += Math.abs(gray.ucharPtr(y, x + 1)[0] - gray.ucharPtr(y, x - 1)[0]);
+				edge += Math.abs(gray.ucharPtr(y + 1, x)[0] - gray.ucharPtr(y - 1, x)[0]);
+				referenceEdge += Math.abs(
+					referenceGray.ucharPtr(y, x + 1)[0] - referenceGray.ucharPtr(y, x - 1)[0]
+				);
+				referenceEdge += Math.abs(
+					referenceGray.ucharPtr(y + 1, x)[0] - referenceGray.ucharPtr(y - 1, x)[0]
+				);
+			}
+
+			count++;
+		}
+	}
+
+	if (count === 0) {
+		return {
+			current: { mean: 0, std: 0, edge: 0 },
+			reference: { mean: 0, std: 0, edge: 0 },
+			meanDelta: 0,
+			diffStd: 0,
+			absDiff: 0
+		};
+	}
+
+	const mean = sum / count;
+	const referenceMean = referenceSum / count;
+	const meanDelta = diffSum / count;
+
+	return {
+		current: {
+			mean,
+			std: Math.sqrt(Math.max(0, sumSq / count - mean * mean)),
+			edge: edge / (count * 2)
+		},
+		reference: {
+			mean: referenceMean,
+			std: Math.sqrt(Math.max(0, referenceSumSq / count - referenceMean * referenceMean)),
+			edge: referenceEdge / (count * 2)
+		},
+		meanDelta,
+		diffStd: Math.sqrt(Math.max(0, diffSumSq / count - meanDelta * meanDelta)),
+		absDiff: absDiff / count
+	};
+}
+
+function sampleShiftAlignedDiff(
+	gray: InstanceType<OpenCvModule['Mat']>,
+	referenceGray: InstanceType<OpenCvModule['Mat']>,
+	x0: number,
+	y0: number,
+	x1: number,
+	y1: number,
+	maxShift: number
+) {
+	let bestDiffStd = Number.POSITIVE_INFINITY;
+	let bestAbsDiff = Number.POSITIVE_INFINITY;
+	let bestScore = Number.POSITIVE_INFINITY;
+
+	for (let shiftY = -maxShift; shiftY <= maxShift; shiftY++) {
+		for (let shiftX = -maxShift; shiftX <= maxShift; shiftX++) {
+			let diffSum = 0;
+			let diffSumSq = 0;
+			let absDiff = 0;
+			let count = 0;
+
+			for (let y = y0; y < y1; y++) {
+				const referenceY = y + shiftY;
+				if (referenceY < 0 || referenceY >= referenceGray.rows) continue;
+
+				for (let x = x0; x < x1; x++) {
+					const referenceX = x + shiftX;
+					if (referenceX < 0 || referenceX >= referenceGray.cols) continue;
+
+					const diff = gray.ucharPtr(y, x)[0] - referenceGray.ucharPtr(referenceY, referenceX)[0];
+					diffSum += diff;
+					diffSumSq += diff * diff;
+					absDiff += Math.abs(diff);
+					count++;
+				}
+			}
+
+			if (count === 0) continue;
+			const meanDelta = diffSum / count;
+			const diffStd = Math.sqrt(Math.max(0, diffSumSq / count - meanDelta * meanDelta));
+			const averageAbsDiff = absDiff / count;
+			const score = diffStd + averageAbsDiff * 0.35;
+
+			if (score < bestScore) {
+				bestScore = score;
+				bestDiffStd = diffStd;
+				bestAbsDiff = averageAbsDiff;
+			}
+		}
+	}
+
+	if (!Number.isFinite(bestScore)) {
+		return { diffStd: 0, absDiff: 0 };
+	}
+
+	return {
+		diffStd: bestDiffStd,
+		absDiff: bestAbsDiff
 	};
 }
 
@@ -1394,17 +1534,93 @@ function scoreOccupancyCell(
 	col: number
 ) {
 	const cellSize = gray.cols / 8;
-	const x0 = Math.floor(col * cellSize + cellSize * 0.15);
-	const x1 = Math.floor((col + 1) * cellSize - cellSize * 0.15);
-	const y0 = Math.floor(row * cellSize + cellSize * 0.15);
-	const y1 = Math.floor((row + 1) * cellSize - cellSize * 0.15);
+	const outerInset = cellSize * 0.15;
+	const centerInset = cellSize * 0.26;
+	const coreInset = cellSize * 0.36;
+	const x0 = Math.floor(col * cellSize + outerInset);
+	const x1 = Math.floor((col + 1) * cellSize - outerInset);
+	const y0 = Math.floor(row * cellSize + outerInset);
+	const y1 = Math.floor((row + 1) * cellSize - outerInset);
+	const centerX0 = Math.floor(col * cellSize + centerInset);
+	const centerX1 = Math.floor((col + 1) * cellSize - centerInset);
+	const centerY0 = Math.floor(row * cellSize + centerInset);
+	const centerY1 = Math.floor((row + 1) * cellSize - centerInset);
+	const coreX0 = Math.floor(col * cellSize + coreInset);
+	const coreX1 = Math.floor((col + 1) * cellSize - coreInset);
+	const coreY0 = Math.floor(row * cellSize + coreInset);
+	const coreY1 = Math.floor((row + 1) * cellSize - coreInset);
 
 	const current = sampleGrayStats(gray, x0, y0, x1, y1);
-	const reference = referenceGray
-		? sampleGrayStats(referenceGray, x0, y0, x1, y1)
-		: { mean: current.mean, std: 0, edge: 0 };
+	if (!referenceGray) {
+		return current.std * 1.15 + current.edge * 0.85;
+	}
 
-	return current.std * 0.8 + current.edge * 0.55 + Math.abs(current.mean - reference.mean) * 1.15;
+	const fullComparison = sampleGrayComparisonStats(gray, referenceGray, x0, y0, x1, y1);
+	const centerComparison = sampleGrayComparisonStats(
+		gray,
+		referenceGray,
+		centerX0,
+		centerY0,
+		centerX1,
+		centerY1
+	);
+	const coreComparison = sampleGrayComparisonStats(
+		gray,
+		referenceGray,
+		coreX0,
+		coreY0,
+		coreX1,
+		coreY1
+	);
+	const centerAlignedDiff = sampleShiftAlignedDiff(
+		gray,
+		referenceGray,
+		centerX0,
+		centerY0,
+		centerX1,
+		centerY1,
+		2
+	);
+	const coreAlignedDiff = sampleShiftAlignedDiff(
+		gray,
+		referenceGray,
+		coreX0,
+		coreY0,
+		coreX1,
+		coreY1,
+		1
+	);
+	const centerContrastShift = Math.abs(
+		(centerComparison.current.mean - fullComparison.current.mean)
+		- (centerComparison.reference.mean - fullComparison.reference.mean)
+	);
+	const coreStdGain = Math.max(0, coreComparison.current.std - coreComparison.reference.std);
+	const coreEdgeGain = Math.max(0, coreComparison.current.edge - coreComparison.reference.edge);
+
+	return (
+		centerAlignedDiff.diffStd * 1.2
+		+ centerAlignedDiff.absDiff * 0.35
+		+ coreAlignedDiff.diffStd * 1.95
+		+ coreAlignedDiff.absDiff * 0.55
+		+ coreStdGain * 1.1
+		+ coreEdgeGain * 0.95
+		+ centerContrastShift * 0.45
+	);
+}
+
+function scoreTextureOccupancyCell(
+	gray: InstanceType<OpenCvModule['Mat']>,
+	row: number,
+	col: number
+) {
+	const cellSize = gray.cols / 8;
+	const inset = cellSize * 0.15;
+	const x0 = Math.floor(col * cellSize + inset);
+	const x1 = Math.floor((col + 1) * cellSize - inset);
+	const y0 = Math.floor(row * cellSize + inset);
+	const y1 = Math.floor((row + 1) * cellSize - inset);
+	const current = sampleGrayStats(gray, x0, y0, x1, y1);
+	return current.std + current.edge * 0.5;
 }
 
 function inferOccupiedIndices(scores: number[]) {
@@ -1412,9 +1628,15 @@ function inferOccupiedIndices(scores: number[]) {
 		.map((score, index) => ({ score, index }))
 		.sort((a, b) => b.score - a.score);
 
+	const scoreMedian = median(scores);
+	const scoreMad = median(scores.map((score) => Math.abs(score - scoreMedian)));
 	const average = mean(scores);
 	const variance = mean(scores.map((score) => (score - average) ** 2));
-	const absoluteThreshold = Math.max(10, average + Math.sqrt(variance) * 0.85);
+	const absoluteThreshold = Math.max(
+		12,
+		scoreMedian + Math.max(2.25, scoreMad) * 2.1,
+		average + Math.sqrt(variance) * 0.45
+	);
 	const aboveThreshold = sorted.filter((entry) => entry.score >= absoluteThreshold);
 
 	if (aboveThreshold.length === 0) return [];
@@ -1450,6 +1672,57 @@ function inferOccupiedIndices(scores: number[]) {
 	return sorted.slice(0, Math.min(inferredCount, 32)).map((entry) => entry.index);
 }
 
+export function selectTopOccupiedIndices(scores: number[], count: number) {
+	return scores
+		.map((score, index) => ({ score, index }))
+		.sort((a, b) => b.score - a.score)
+		.slice(0, Math.min(count, scores.length))
+		.map((entry) => entry.index);
+}
+
+function totalOccupiedScore(scores: number[], occupiedIndices: number[]) {
+	return occupiedIndices.reduce((sum, index) => sum + scores[index], 0);
+}
+
+export function trackOccupiedIndices(previousOccupiedIndices: number[], scores: number[]) {
+	if (previousOccupiedIndices.length === 0) {
+		return [];
+	}
+
+	const previousSet = new Set(previousOccupiedIndices);
+	const currentlyOccupied = [...previousSet];
+	const currentlyEmpty = [];
+	for (let index = 0; index < scores.length; index++) {
+		if (!previousSet.has(index)) currentlyEmpty.push(index);
+	}
+
+	const currentScore = totalOccupiedScore(scores, currentlyOccupied);
+	let bestIndices = [...previousOccupiedIndices].sort((a, b) => a - b);
+	let bestScore = currentScore;
+
+	for (const removeIndex of currentlyOccupied) {
+		for (const addIndex of currentlyEmpty) {
+			const transitionScore = currentScore - scores[removeIndex] + scores[addIndex];
+			if (transitionScore > bestScore) {
+				bestScore = transitionScore;
+				bestIndices = currentlyOccupied
+					.filter((index) => index !== removeIndex)
+					.concat(addIndex)
+					.sort((a, b) => a - b);
+			}
+		}
+	}
+
+	return bestScore >= currentScore + 1.4 ? bestIndices : [...previousOccupiedIndices].sort((a, b) => a - b);
+}
+
+export function boardLooksEmpty(referenceScores: number[]) {
+	if (referenceScores.length === 0) return true;
+	const average = mean(referenceScores);
+	const peak = Math.max(...referenceScores);
+	return average < 14 && peak < 38;
+}
+
 export function analyzeBoardFrame(
 	cv: OpenCvModule,
 	frameImageData: ImageData,
@@ -1461,8 +1734,14 @@ export function analyzeBoardFrame(
 	cv.cvtColor(frameMat, frameGray, cv.COLOR_RGBA2GRAY, 0);
 
 	const quad = denormalizeQuad(normalizedQuad, frameImageData.width, frameImageData.height);
-	const warpedBoard = warpQuad(cv, frameMat, quad, WARP_SIZE);
-	const warpedGray = warpQuad(cv, frameGray, quad, WARP_SIZE);
+	const occupancyQuad = [
+		boardPointToImage(cv, quad, OCCUPANCY_BOARD_INSET_CELLS, OCCUPANCY_BOARD_INSET_CELLS),
+		boardPointToImage(cv, quad, 8 - OCCUPANCY_BOARD_INSET_CELLS, OCCUPANCY_BOARD_INSET_CELLS),
+		boardPointToImage(cv, quad, 8 - OCCUPANCY_BOARD_INSET_CELLS, 8 - OCCUPANCY_BOARD_INSET_CELLS),
+		boardPointToImage(cv, quad, OCCUPANCY_BOARD_INSET_CELLS, 8 - OCCUPANCY_BOARD_INSET_CELLS)
+	] as [ImagePoint, ImagePoint, ImagePoint, ImagePoint];
+	const warpedBoard = warpQuad(cv, frameMat, occupancyQuad, WARP_SIZE);
+	const warpedGray = warpQuad(cv, frameGray, occupancyQuad, WARP_SIZE);
 
 	let referenceWarpGray: InstanceType<OpenCvModule['Mat']> | null = null;
 	if (referenceImageData) {
@@ -1474,19 +1753,51 @@ export function analyzeBoardFrame(
 			referenceImageData.width,
 			referenceImageData.height
 		);
-		referenceWarpGray = warpQuad(cv, referenceGray, referenceQuad, WARP_SIZE);
+		const referenceOccupancyQuad = [
+			boardPointToImage(
+				cv,
+				referenceQuad,
+				OCCUPANCY_BOARD_INSET_CELLS,
+				OCCUPANCY_BOARD_INSET_CELLS
+			),
+			boardPointToImage(
+				cv,
+				referenceQuad,
+				8 - OCCUPANCY_BOARD_INSET_CELLS,
+				OCCUPANCY_BOARD_INSET_CELLS
+			),
+			boardPointToImage(
+				cv,
+				referenceQuad,
+				8 - OCCUPANCY_BOARD_INSET_CELLS,
+				8 - OCCUPANCY_BOARD_INSET_CELLS
+			),
+			boardPointToImage(
+				cv,
+				referenceQuad,
+				OCCUPANCY_BOARD_INSET_CELLS,
+				8 - OCCUPANCY_BOARD_INSET_CELLS
+			)
+		] as [ImagePoint, ImagePoint, ImagePoint, ImagePoint];
+		referenceWarpGray = warpQuad(cv, referenceGray, referenceOccupancyQuad, WARP_SIZE);
 		referenceMat.delete();
 		referenceGray.delete();
 	}
 
 	const scores: number[] = [];
+	const referenceScores: number[] = [];
 	for (let row = 0; row < 8; row++) {
 		for (let col = 0; col < 8; col++) {
-			scores.push(scoreOccupancyCell(warpedGray, referenceWarpGray, row, col));
+			scores.push(scoreTextureOccupancyCell(warpedGray, row, col));
+			if (referenceWarpGray) {
+				referenceScores.push(scoreOccupancyCell(warpedGray, referenceWarpGray, row, col));
+			}
 		}
 	}
 
-	const occupiedIndices = inferOccupiedIndices(scores);
+	const occupiedIndices = referenceWarpGray && boardLooksEmpty(referenceScores)
+		? []
+		: inferOccupiedIndices(scores);
 	const boardImageData = imageDataFromMat(warpedBoard);
 
 	frameMat.delete();
@@ -1498,6 +1809,7 @@ export function analyzeBoardFrame(
 	return {
 		boardImageData,
 		occupiedIndices,
-		scores
+		scores,
+		referenceScores
 	};
 }

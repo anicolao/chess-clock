@@ -13,10 +13,26 @@ async function saveDocScreenshot(page: import('@playwright/test').Page, filename
     await page.screenshot({ path: screenshotPath });
 }
 
+async function readPreviewOccupiedIndices(page: import('@playwright/test').Page) {
+    return page.locator('canvas.preview-canvas').evaluate((node) => {
+        const occupiedIndices = node.getAttribute('data-occupied-indices');
+        if (!occupiedIndices) {
+            return [];
+        }
+
+        return occupiedIndices
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .map((value) => Number.parseInt(value, 10));
+    });
+}
+
 test.describe('Board Setup With Mocked Webcam', () => {
     test('Setup screen detects the board from a mocked webcam frame', async ({ page }, testInfo) => {
         const emptyBoardImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/empty.jpg'));
         const initialSetupImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/initial_setup.jpg'));
+        const e5ImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/e5.jpg'));
 
         await page.addInitScript(({ imageUrl }) => {
             let currentFrameImageUrl = imageUrl;
@@ -144,10 +160,26 @@ test.describe('Board Setup With Mocked Webcam', () => {
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, initialSetupImageUrl);
         await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
+        await expect
+            .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
+            .toHaveLength(32);
+        const initialIndices = await readPreviewOccupiedIndices(page);
+        expect(initialIndices).toContain(1);
+        expect(initialIndices).toContain(57);
         await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),
             contentType: 'image/png'
         });
+
+        await page.evaluate((nextImageUrl) => {
+            return (window as typeof window & {
+                __setMockWebcamFrame?: (url: string) => Promise<void>;
+            }).__setMockWebcamFrame?.(nextImageUrl);
+        }, e5ImageUrl);
+        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
+        await expect
+            .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
+            .toHaveLength(32);
     });
 });
