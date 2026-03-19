@@ -27,6 +27,9 @@ const pkg = JSON.parse(readFileSync('package.json', 'utf-8'));
 
 export default defineConfig({
 	plugins: [sveltekit()],
+	worker: {
+		format: 'es'
+	},
 	define: {
 		'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
 		'import.meta.env.VITE_APP_COMMIT_HASH': JSON.stringify(getGitHash()),
