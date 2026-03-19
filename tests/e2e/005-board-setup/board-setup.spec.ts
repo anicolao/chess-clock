@@ -164,12 +164,10 @@ test.describe('Board Setup With Mocked Webcam', () => {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, initialSetupImageUrl);
+        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
         await expect
-            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '0', 10), { timeout: 20000 })
-            .toBeGreaterThan(0);
-        await expect
-            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '999', 10), { timeout: 20000 })
-            .toBeLessThan(20);
+            .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
+            .toHaveLength(32);
         await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),
@@ -181,11 +179,9 @@ test.describe('Board Setup With Mocked Webcam', () => {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, e5ImageUrl);
+        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
         await expect
-            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '0', 10), { timeout: 20000 })
-            .toBeGreaterThan(0);
-        await expect
-            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '999', 10), { timeout: 20000 })
-            .toBeLessThan(20);
+            .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
+            .toHaveLength(32);
     });
 });
