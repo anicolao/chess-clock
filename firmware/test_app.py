@@ -1,5 +1,10 @@
+import json
 import pytest
+import urllib.request
+import urllib.error
 from pytest_embedded_idf.dut import IdfDut
+
+QEMU_HTTP_PORT = 18080
 
 def test_provisioning_flow(dut: IdfDut):
     dut.expect("ESP32S3 initialization complete.", timeout=10)
@@ -25,3 +30,25 @@ def test_provisioning_flow(dut: IdfDut):
     dut.expect("TEST mDNS: Service discovered", timeout=5)
     dut.expect("TEST mDNS: Discovery OK", timeout=5)
     dut.expect("=== Self-Test Complete ===", timeout=5)
+
+    # HTTP endpoint tests via QEMU port forwarding
+    base_url = f"http://localhost:{QEMU_HTTP_PORT}"
+
+    # Test /api/status endpoint
+    resp = urllib.request.urlopen(f"{base_url}/api/status", timeout=5)
+    assert resp.status == 200
+    body = json.loads(resp.read())
+    assert body == {"status": "ok"}
+    assert resp.headers["Access-Control-Allow-Origin"] == "*"
+
+    # Test /capture endpoint returns image data
+    resp = urllib.request.urlopen(f"{base_url}/capture", timeout=5)
+    assert resp.status == 200
+    assert resp.headers["Content-Type"] == "image/jpeg"
+    assert resp.headers["Access-Control-Allow-Origin"] == "*"
+    width = int(resp.headers["X-Frame-Width"])
+    height = int(resp.headers["X-Frame-Height"])
+    assert width > 0
+    assert height > 0
+    image_data = resp.read()
+    assert len(image_data) == width * height  # mock frame is raw grayscale
