@@ -236,6 +236,8 @@ void app_main(void)
         } else {
             if (!server_started) {
                 printf("Device is provisioned. Starting HTTP server...\n");
+                /* Switch camera to JPEG for HTTP serving */
+                camera_hal_set_format(CAMERA_FMT_JPEG);
                 if (http_server_start()) {
                     server_started = true;
                     /* Verify camera-to-HTTP pipeline is wired correctly */
