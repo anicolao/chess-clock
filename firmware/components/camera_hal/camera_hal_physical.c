@@ -46,15 +46,15 @@ bool camera_hal_init(void) {
         .pin_vsync = CAM_PIN_VSYNC,
         .pin_href = CAM_PIN_HREF,
         .pin_pclk = CAM_PIN_PCLK,
-        .xclk_freq_hz = 20000000,
+        .xclk_freq_hz = 10000000,            /* 10 MHz — stable for XIAO ESP32S3 */
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
         .pixel_format = PIXFORMAT_GRAYSCALE,  /* Start in grayscale for QR provisioning */
-        .frame_size = FRAMESIZE_SVGA,
+        .frame_size = FRAMESIZE_QVGA,         /* 320x240 — sufficient for QR decode */
         .jpeg_quality = 12,
-        .fb_count = 2,
+        .fb_count = 1,                        /* Single buffer for grayscale */
         .fb_location = CAMERA_FB_IN_PSRAM,
-        .grab_mode = CAMERA_GRAB_LATEST,
+        .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
     };
 
     esp_err_t err = esp_camera_init(&config);
@@ -64,7 +64,7 @@ bool camera_hal_init(void) {
     }
 
     current_format = CAMERA_FMT_GRAYSCALE;
-    ESP_LOGI(TAG, "OV2640 initialized (SVGA, grayscale)");
+    ESP_LOGI(TAG, "OV2640 initialized (QVGA, grayscale)");
     return true;
 }
 
@@ -102,12 +102,14 @@ bool camera_hal_set_format(camera_format_t fmt) {
 
     if (fmt == CAMERA_FMT_JPEG) {
         s->set_pixformat(s, PIXFORMAT_JPEG);
+        s->set_framesize(s, FRAMESIZE_SVGA);  /* 800x600 for HTTP serving */
         current_format = CAMERA_FMT_JPEG;
-        ESP_LOGI(TAG, "Switched to JPEG output");
+        ESP_LOGI(TAG, "Switched to JPEG SVGA output");
     } else {
         s->set_pixformat(s, PIXFORMAT_GRAYSCALE);
+        s->set_framesize(s, FRAMESIZE_QVGA);  /* 320x240 for QR decode */
         current_format = CAMERA_FMT_GRAYSCALE;
-        ESP_LOGI(TAG, "Switched to grayscale output");
+        ESP_LOGI(TAG, "Switched to grayscale QVGA output");
     }
     return true;
 }
