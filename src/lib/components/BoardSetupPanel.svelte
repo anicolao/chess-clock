@@ -16,8 +16,6 @@
 		boardLooksEmpty,
 		localizeChessboardFromImageData,
 		normalizeQuad,
-		selectTopOccupiedIndices,
-		trackOccupiedIndices,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
@@ -61,7 +59,6 @@
 	let previewOccupiedIndices = $state<number[]>([]);
 	let previewOccupancyScores = $state<number[]>([]);
 	let previewReferenceScores = $state<number[]>([]);
-	let trackedOccupiedIndices = $state<number[]>([]);
 	let dragHandleIndex = $state<number | null>(null);
 	let streamEnabled = $state(false);
 
@@ -516,7 +513,6 @@
 				coverAspectRatio: CAMERA_STAGE_ASPECT_RATIO
 			});
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
-			trackedOccupiedIndices = [];
 			previewOccupiedIndices = [];
 			previewOccupancyScores = [];
 			previewReferenceScores = [];
@@ -562,7 +558,6 @@
 		referenceImageData = null;
 		detectedBoardScore = null;
 		savedAt = null;
-		trackedOccupiedIndices = [];
 		clearBoardCalibration();
 		statusMessage = 'Saved calibration cleared. Adjust the quad and capture a new empty-board reference.';
 		errorMessage = null;
@@ -617,7 +612,6 @@
 			previewOccupiedIndices = [];
 			previewOccupancyScores = [];
 			previewReferenceScores = [];
-			trackedOccupiedIndices = [];
 			context.fillStyle = '#0f172a';
 			context.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
 			context.fillStyle = '#cbd5e1';
@@ -639,9 +633,7 @@
 			? []
 			: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
 				? []
-				: trackedOccupiedIndices.length === 0
-					? selectTopOccupiedIndices(analysis.scores, 32)
-					: trackOccupiedIndices(trackedOccupiedIndices, analysis.scores);
+				: analysis.occupiedIndices;
 		previewCanvas.width = WARP_SIZE;
 		previewCanvas.height = WARP_SIZE;
 		context.putImageData(analysis.boardImageData, 0, 0);
@@ -650,7 +642,6 @@
 		previewOccupiedIndices = [...resolvedOccupiedIndices].sort((a, b) => a - b);
 		previewOccupancyScores = [...analysis.scores];
 		previewReferenceScores = [...analysis.referenceScores];
-		trackedOccupiedIndices = [...resolvedOccupiedIndices];
 	}
 
 	function formatTime(timestamp: number | null) {
