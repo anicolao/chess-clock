@@ -11,16 +11,16 @@
 		type BoardCalibration
 	} from '$lib/board-calibration';
 	import { captureImageDataFromElement, imageDataToDataUrl, loadImageDataFromUrl } from '$lib/vision/browser-images';
-	import BoardDetectorWorker from '$lib/workers/board-detector.worker?worker&inline';
 	import {
 		analyzeBoardFrame,
-		localizeChessboardFromImageDataFast,
+		localizeChessboardFromImageDataByGridSearch,
 		normalizeQuad,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
 
 	type OpenCvModule = typeof import('@techstark/opencv-js');
+	type BoardDetection = ReturnType<typeof localizeChessboardFromImageDataByGridSearch>;
 	const HANDLE_RADIUS = 0.034;
 	const HANDLE_GRAB_RADIUS = 0.14;
 	const SETUP_ANALYSIS_MAX_DIMENSION = 448;
@@ -65,7 +65,7 @@
 	const pendingDetections = new Map<
 		number,
 		{
-			resolve: (detection: ReturnType<typeof localizeChessboardFromImageDataFast>) => void;
+			resolve: (detection: BoardDetection) => void;
 			reject: (error: Error) => void;
 		}
 	>();
@@ -98,13 +98,20 @@
 
 	onMount(async () => {
 		if (typeof Worker !== 'undefined') {
-			detectionWorker = new BoardDetectorWorker();
+			detectionWorker = new Worker(new URL('../workers/board-detector.worker.ts', import.meta.url), {
+				type: 'module'
+			});
 			detectionWorker.onmessage = (
 				event: MessageEvent<
 					| {
 						id: number;
+						type: 'detect-progress';
+						stage: string;
+					}
+					| {
+						id: number;
 						type: 'detect-result';
-						detection: ReturnType<typeof localizeChessboardFromImageDataFast>;
+						detection: BoardDetection;
 					}
 					| {
 						id: number;
@@ -113,6 +120,13 @@
 					}
 				>
 			) => {
+				if (event.data.type === 'detect-progress') {
+					if (busyLabel === 'Detecting board') {
+						statusMessage = event.data.stage;
+					}
+					return;
+				}
+
 				const pendingDetection = pendingDetections.get(event.data.id);
 				if (!pendingDetection) return;
 
@@ -191,22 +205,29 @@
 		autodetectAttemptsRemaining = 0;
 	}
 
-	async function detectBoardInWorker(frame: ImageData, fallbackCv: OpenCvModule) {
+	async function detectBoard(frame: ImageData, fallbackCv?: OpenCvModule) {
 		if (!detectionWorker) {
-			return localizeChessboardFromImageDataFast(fallbackCv, frame);
+			if (!fallbackCv) {
+				throw new Error('OpenCV is unavailable for board detection.');
+			}
+
+			return localizeChessboardFromImageDataByGridSearch(frame);
 		}
 
-		return new Promise<ReturnType<typeof localizeChessboardFromImageDataFast>>((resolve, reject) => {
+		return new Promise<BoardDetection>((resolve, reject) => {
 			const requestId = detectionRequestId++;
 			pendingDetections.set(requestId, {
 				resolve,
 				reject
 			});
+			const frameData = frame.data.slice();
 			detectionWorker!.postMessage({
 				id: requestId,
 				type: 'detect',
-				imageData: frame
-			});
+				width: frame.width,
+				height: frame.height,
+				data: frameData.buffer
+			}, [frameData.buffer]);
 		});
 	}
 
@@ -346,7 +367,6 @@
 					await streamVideo.play().catch(() => {});
 				}
 				statusMessage = 'Browser camera connected. Drag a corner handle or run auto-detect.';
-				void warmCvModule();
 			} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to open the browser camera.';
 			statusMessage = 'Camera permission or access failed.';
@@ -432,24 +452,27 @@
 			return;
 		}
 
-		const activeCv = cvModule ?? await warmCvModule();
-		if (!activeCv) {
-			busyLabel = null;
-			clearAutodetectSession();
-			return;
-		}
-
 		const attemptIndex = SETUP_AUTODETECT_ATTEMPTS - autodetectAttemptsRemaining + 1;
 		statusMessage = `Scanning live frame ${attemptIndex} of ${SETUP_AUTODETECT_ATTEMPTS} for the board.`;
 		await waitForNextPaint();
 
 		try {
 			const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
-			const detection = await detectBoardInWorker(frame, activeCv);
+			let activeCv: OpenCvModule | null = null;
+			if (!detectionWorker) {
+				activeCv = cvModule ?? await warmCvModule();
+				if (!activeCv) {
+					busyLabel = null;
+					clearAutodetectSession();
+					return;
+				}
+			}
+
+			const detection = await detectBoard(frame, activeCv ?? undefined);
 			if (detection) {
 				normalizedQuad = normalizeQuad(detection.quad, frame.width, frame.height);
 				detectedBoardScore = detection.score;
-				statusMessage = `Board detected from ${detection.selectedCount} square candidates.`;
+				statusMessage = 'Board detected from grid appearance scoring.';
 				busyLabel = null;
 				clearAutodetectSession();
 				await renderPreview();
@@ -468,12 +491,16 @@
 
 	async function autodetectBoard() {
 		errorMessage = null;
-		statusMessage = 'Loading OpenCV so the board can be analyzed.';
+		statusMessage = detectionWorker
+			? 'Starting the OpenCV board scan.'
+			: 'Loading OpenCV so the board can be analyzed.';
 
 		clearAutodetectSession();
 		autodetectAttemptsRemaining = SETUP_AUTODETECT_ATTEMPTS;
 		busyLabel = 'Detecting board';
-		void warmCvModule();
+		if (!detectionWorker) {
+			void warmCvModule();
+		}
 		scheduleAutodetectTick(0);
 	}
 
@@ -494,7 +521,9 @@
 			});
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
 			statusMessage = 'Empty-board reference captured. Save calibration to use it from the clock.';
-			await renderPreview();
+			if (cvModule) {
+				void renderPreview();
+			}
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to capture the empty-board reference.';
 		} finally {
@@ -573,7 +602,7 @@
 		}
 	}
 
-	async function renderPreview() {
+	async function renderPreview(loadVision = false) {
 		if (!previewCanvas || !cameraFrameReady) return;
 
 		const context = previewCanvas.getContext('2d');
@@ -591,8 +620,11 @@
 			return;
 		}
 
-		await waitForNextPaint();
-		const activeCv = await ensureCvModule();
+		let activeCv = cvModule;
+		if (!activeCv && loadVision) {
+			await waitForNextPaint();
+			activeCv = await ensureCvModule();
+		}
 		if (!activeCv) return;
 		const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
 		const analysis = analyzeBoardFrame(activeCv, frame, normalizedQuad, referenceImageData);
@@ -681,7 +713,6 @@
 							cameraFrameReady = true;
 							statusMessage = 'Live camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
-							void warmCvModule();
 						}}
 					></video>
 				{:else}
@@ -695,7 +726,6 @@
 							cameraFrameReady = true;
 							statusMessage = 'Remote camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
-							void warmCvModule();
 						}}
 						onerror={() => {
 							cameraFrameReady = false;
@@ -791,7 +821,7 @@
 			</div>
 
 			<canvas bind:this={previewCanvas} class="preview-canvas" width={WARP_SIZE} height={WARP_SIZE}></canvas>
-			<button class="action-btn" type="button" onclick={renderPreview} disabled={!cameraFrameReady || !!busyLabel}>
+			<button class="action-btn" type="button" onclick={() => void renderPreview(true)} disabled={!cameraFrameReady || !!busyLabel}>
 				Refresh preview
 			</button>
 
