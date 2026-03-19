@@ -13,3 +13,4 @@ def test_provisioning_flow(dut: IdfDut):
     dut.expect("Device is provisioned. Starting HTTP server...", timeout=5)
     dut.expect("HTTP server started on port 80", timeout=5)
     dut.expect("Registered endpoints: /api/status, /capture", timeout=5)
+    dut.expect(r"Capture endpoint ready: \d+x\d+, \d+ bytes available", timeout=5)

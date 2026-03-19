@@ -64,6 +64,13 @@ void app_main(void)
                 printf("Device is provisioned. Starting HTTP server...\n");
                 if (http_server_start()) {
                     server_started = true;
+                    /* Verify camera-to-HTTP pipeline is wired correctly */
+                    camera_frame_t *test_frame = camera_hal_take_picture();
+                    if (test_frame) {
+                        printf("Capture endpoint ready: %dx%d, %zu bytes available\n",
+                               test_frame->width, test_frame->height, test_frame->len);
+                        camera_hal_return_picture(test_frame);
+                    }
                 } else {
                     printf("Failed to start HTTP server, will retry...\n");
                 }
