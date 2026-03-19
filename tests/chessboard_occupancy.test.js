@@ -13,6 +13,13 @@ import {
     writeMatImage
 } from './lib/chessboard_cv.js';
 
+/** @typedef {any} CvMat */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {Point[]} Quad */
+/** @typedef {{totalScore: number, lattice: { uniqueCells: number }, appearance: { colorSeparation: number }}} LocalizationMetrics */
+/** @typedef {{quad: Quad | null, metrics: LocalizationMetrics | null, edges: CvMat, dilated: CvMat}} LocalizationResult */
+/** @typedef {{occupied: Set<number>, removed: number[], added: number[]}} OccupancyTransition */
+
 const inputBaseDir = 'tests/images/game';
 const outputBaseDir = 'tests/images/out/occupancy/game';
 const reportFile = 'tests/board_occupancy_report.md';
@@ -28,11 +35,18 @@ const GAME_SEQUENCE = [
     { input: 'c5.jpg', output: '07-c5.jpg', label: '07-c5', move: 'c5' }
 ];
 
+/**
+ * @param {string} filePath
+ */
 function ensureParentDir(filePath) {
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * @param {string} imagePath
+ * @returns {Promise<CvMat>}
+ */
 function loadImageAsMat(imagePath) {
     return Jimp.read(imagePath).then((image) => {
         const mat = new cv.Mat(image.bitmap.height, image.bitmap.width, cv.CV_8UC4);
@@ -41,6 +55,10 @@ function loadImageAsMat(imagePath) {
     });
 }
 
+/**
+ * @param {number} index
+ * @returns {{row: number, col: number}}
+ */
 function cellIndexToCoords(index) {
     return {
         row: Math.floor(index / 8),
@@ -48,6 +66,12 @@ function cellIndexToCoords(index) {
     };
 }
 
+/**
+ * @param {CvMat} warpedGray
+ * @param {number} row
+ * @param {number} col
+ * @returns {number}
+ */
 function getOccupancyScore(warpedGray, row, col) {
     const cellSize = warpedGray.cols / 8;
     const x0 = Math.floor(col * cellSize + cellSize * 0.15);
@@ -81,7 +105,12 @@ function getOccupancyScore(warpedGray, row, col) {
     return std + (edge / (count * 2)) * 0.5;
 }
 
+/**
+ * @param {CvMat} warpedGray
+ * @returns {number[]}
+ */
 function getOccupancyScores(warpedGray) {
+    /** @type {number[]} */
     const scores = [];
     for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 8; col++) {
@@ -91,6 +120,11 @@ function getOccupancyScores(warpedGray) {
     return scores;
 }
 
+/**
+ * @param {number[]} scores
+ * @param {number} count
+ * @returns {Set<number>}
+ */
 function selectTopNIndices(scores, count) {
     return new Set(
         scores
@@ -101,14 +135,21 @@ function selectTopNIndices(scores, count) {
     );
 }
 
+/**
+ * @param {Set<number>} previousOccupied
+ * @param {number[]} scores
+ * @returns {OccupancyTransition}
+ */
 function bestSingleMoveTransition(previousOccupied, scores) {
     const currentlyOccupied = [...previousOccupied];
+    /** @type {number[]} */
     const currentlyEmpty = [];
     for (let i = 0; i < 64; i++) {
         if (!previousOccupied.has(i)) currentlyEmpty.push(i);
     }
 
     const currentScore = currentlyOccupied.reduce((sum, index) => sum + scores[index], 0);
+    /** @type {{removeIndex: number, addIndex: number, totalScore: number} | null} */
     let best = null;
 
     for (const removeIndex of currentlyOccupied) {
@@ -118,6 +159,14 @@ function bestSingleMoveTransition(previousOccupied, scores) {
                 best = { removeIndex, addIndex, totalScore };
             }
         }
+    }
+
+    if (!best) {
+        return {
+            occupied: new Set(previousOccupied),
+            removed: [],
+            added: []
+        };
     }
 
     const nextOccupied = new Set(previousOccupied);
@@ -131,12 +180,22 @@ function bestSingleMoveTransition(previousOccupied, scores) {
     };
 }
 
+/**
+ * @param {Set<number>} previousOccupied
+ * @param {Set<number>} currentOccupied
+ * @returns {{removed: number[], added: number[]}}
+ */
 function diffOccupied(previousOccupied, currentOccupied) {
     const removed = [...previousOccupied].filter((index) => !currentOccupied.has(index));
     const added = [...currentOccupied].filter((index) => !previousOccupied.has(index));
     return { removed, added };
 }
 
+/**
+ * @param {CvMat} image
+ * @param {Quad} quad
+ * @param {Set<number>} occupiedIndices
+ */
 function drawOccupancyOnOriginal(image, quad, occupiedIndices) {
     drawQuad(image, quad, new cv.Scalar(0, 255, 0, 255), 4);
 
@@ -148,6 +207,10 @@ function drawOccupancyOnOriginal(image, quad, occupiedIndices) {
     }
 }
 
+/**
+ * @param {CvMat} image
+ * @param {Set<number>} occupiedIndices
+ */
 function drawOccupancyOnWarp(image, occupiedIndices) {
     drawWarpGrid(image);
 
@@ -161,6 +224,11 @@ function drawOccupancyOnWarp(image, occupiedIndices) {
     }
 }
 
+/**
+ * @param {number[]} removed
+ * @param {number[]} added
+ * @returns {string}
+ */
 function formatStateDelta(removed, added) {
     if (removed.length === 0 && added.length === 0) return '-';
     if (removed.length === 0) return `setup: +${added.length}`;
@@ -170,12 +238,14 @@ function formatStateDelta(removed, added) {
 async function processSequence() {
     const emptyPath = path.join(inputBaseDir, 'empty.jpg');
     const emptyBoard = await loadImageAsMat(emptyPath);
+    /** @type {LocalizationResult} */
     const localization = localizeChessboard(emptyBoard);
 
-    if (!localization.quad) {
+    if (!localization.quad || !localization.metrics) {
         throw new Error('Failed to localize the empty game board.');
     }
 
+    /** @type {Array<{label: string, move: string, outputPath: string, warpOutputPath: string, occupiedCount: number, changedSummary: string}>} */
     const results = [];
     let previousOccupied = new Set();
 
@@ -194,8 +264,11 @@ async function processSequence() {
         const warpedGray = warpQuad(gray, localization.quad, WARP_SIZE);
 
         const scores = getOccupancyScores(warpedGray);
+        /** @type {Set<number>} */
         let occupied = new Set();
+        /** @type {number[]} */
         let removed = [];
+        /** @type {number[]} */
         let added = [];
 
         if (step.label === '00-empty') {
