@@ -92,6 +92,13 @@
 </div>
 
 <style>
+  :global(html),
+  :global(body) {
+    overflow: auto;
+    height: auto;
+    min-height: 100%;
+  }
+
   .settings-page {
     color: white;
     padding: 2rem;
@@ -99,6 +106,7 @@
       radial-gradient(circle at top right, rgba(74, 222, 128, 0.1), transparent 28%),
       linear-gradient(180deg, #0b1120, #111827);
     min-height: 100vh;
+    padding-bottom: 4rem;
     font-family: "Segoe UI", Helvetica, Arial, sans-serif;
   }
 
