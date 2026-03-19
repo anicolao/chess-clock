@@ -13,19 +13,19 @@
 	import { captureImageDataFromElement, imageDataToDataUrl, loadImageDataFromUrl } from '$lib/vision/browser-images';
 	import {
 		analyzeBoardFrame,
-		localizeChessboardFromImageDataByGridSearch,
+		localizeChessboardFromImageData,
 		normalizeQuad,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
 
 	type OpenCvModule = typeof import('@techstark/opencv-js');
-	type BoardDetection = ReturnType<typeof localizeChessboardFromImageDataByGridSearch>;
+	type BoardDetection = ReturnType<typeof localizeChessboardFromImageData>;
 	const HANDLE_RADIUS = 0.034;
 	const HANDLE_GRAB_RADIUS = 0.14;
 	const SETUP_ANALYSIS_MAX_DIMENSION = 448;
 	const SETUP_REFERENCE_MAX_DIMENSION = 720;
-	const SETUP_AUTODETECT_ATTEMPTS = 6;
+	const SETUP_AUTODETECT_ATTEMPTS = 1;
 	const SETUP_AUTODETECT_INTERVAL_MS = 200;
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
@@ -60,15 +60,6 @@
 	let cvWarmupPromise: Promise<OpenCvModule | null> | null = null;
 	let autodetectTimeoutId: number | null = null;
 	let autodetectAttemptsRemaining = 0;
-	let detectionWorker: Worker | null = null;
-	let detectionRequestId = 0;
-	const pendingDetections = new Map<
-		number,
-		{
-			resolve: (detection: BoardDetection) => void;
-			reject: (error: Error) => void;
-		}
-	>();
 
 	const quadSegments = $derived([
 		[normalizedQuad[0], normalizedQuad[1]],
@@ -97,49 +88,6 @@
 	});
 
 	onMount(async () => {
-		if (typeof Worker !== 'undefined') {
-			detectionWorker = new Worker(new URL('../workers/board-detector.worker.ts', import.meta.url), {
-				type: 'module'
-			});
-			detectionWorker.onmessage = (
-				event: MessageEvent<
-					| {
-						id: number;
-						type: 'detect-progress';
-						stage: string;
-					}
-					| {
-						id: number;
-						type: 'detect-result';
-						detection: BoardDetection;
-					}
-					| {
-						id: number;
-						type: 'detect-error';
-						error: string;
-					}
-				>
-			) => {
-				if (event.data.type === 'detect-progress') {
-					if (busyLabel === 'Detecting board') {
-						statusMessage = event.data.stage;
-					}
-					return;
-				}
-
-				const pendingDetection = pendingDetections.get(event.data.id);
-				if (!pendingDetection) return;
-
-				pendingDetections.delete(event.data.id);
-				if (event.data.type === 'detect-result') {
-					pendingDetection.resolve(event.data.detection);
-					return;
-				}
-
-				pendingDetection.reject(new Error(event.data.error));
-			};
-		}
-
 		const savedCalibration = loadBoardCalibration();
 		if (savedCalibration) {
 			cameraMode = savedCalibration.cameraMode;
@@ -164,12 +112,6 @@
 	});
 
 	onDestroy(() => {
-		for (const pendingDetection of pendingDetections.values()) {
-			pendingDetection.reject(new Error('Board detector worker was stopped.'));
-		}
-		pendingDetections.clear();
-		detectionWorker?.terminate();
-		detectionWorker = null;
 		if (autodetectTimeoutId) {
 			clearTimeout(autodetectTimeoutId);
 		}
@@ -206,29 +148,10 @@
 	}
 
 	async function detectBoard(frame: ImageData, fallbackCv?: OpenCvModule) {
-		if (!detectionWorker) {
-			if (!fallbackCv) {
-				throw new Error('OpenCV is unavailable for board detection.');
-			}
-
-			return localizeChessboardFromImageDataByGridSearch(frame);
+		if (!fallbackCv) {
+			throw new Error('OpenCV is unavailable for board detection.');
 		}
-
-		return new Promise<BoardDetection>((resolve, reject) => {
-			const requestId = detectionRequestId++;
-			pendingDetections.set(requestId, {
-				resolve,
-				reject
-			});
-			const frameData = frame.data.slice();
-			detectionWorker!.postMessage({
-				id: requestId,
-				type: 'detect',
-				width: frame.width,
-				height: frame.height,
-				data: frameData.buffer
-			}, [frameData.buffer]);
-		});
+		return localizeChessboardFromImageData(fallbackCv, frame);
 	}
 
 	function updateHandlePosition(index: number, clientX: number, clientY: number) {
@@ -415,7 +338,7 @@
 			.then((loadedCv) => {
 				cvModule = loadedCv;
 				if (busyLabel === 'Detecting board' && autodetectAttemptsRemaining > 0) {
-					statusMessage = 'Vision ready. Scanning live frames for the board.';
+					statusMessage = 'OpenCV ready. Running contour detection on a high-resolution frame. This can take several seconds.';
 				}
 				return loadedCv;
 			})
@@ -453,26 +376,25 @@
 		}
 
 		const attemptIndex = SETUP_AUTODETECT_ATTEMPTS - autodetectAttemptsRemaining + 1;
-		statusMessage = `Scanning live frame ${attemptIndex} of ${SETUP_AUTODETECT_ATTEMPTS} for the board.`;
+		statusMessage = SETUP_AUTODETECT_ATTEMPTS === 1
+			? 'OpenCV is analyzing one high-resolution frame for board contours.'
+			: `OpenCV is analyzing frame ${attemptIndex} of ${SETUP_AUTODETECT_ATTEMPTS} for board contours.`;
 		await waitForNextPaint();
 
 		try {
 			const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
-			let activeCv: OpenCvModule | null = null;
-			if (!detectionWorker) {
-				activeCv = cvModule ?? await warmCvModule();
-				if (!activeCv) {
-					busyLabel = null;
-					clearAutodetectSession();
-					return;
-				}
+			const activeCv = cvModule ?? await warmCvModule();
+			if (!activeCv) {
+				busyLabel = null;
+				clearAutodetectSession();
+				return;
 			}
 
-			const detection = await detectBoard(frame, activeCv ?? undefined);
+			const detection = await detectBoard(frame, activeCv);
 			if (detection) {
 				normalizedQuad = normalizeQuad(detection.quad, frame.width, frame.height);
 				detectedBoardScore = detection.score;
-				statusMessage = 'Board detected from grid appearance scoring.';
+				statusMessage = `Board detected from OpenCV contours (${detection.selectedCount} clustered squares from ${detection.candidateCount} candidates).`;
 				busyLabel = null;
 				clearAutodetectSession();
 				await renderPreview();
@@ -491,16 +413,12 @@
 
 	async function autodetectBoard() {
 		errorMessage = null;
-		statusMessage = detectionWorker
-			? 'Starting the OpenCV board scan.'
-			: 'Loading OpenCV so the board can be analyzed.';
+		statusMessage = 'Loading OpenCV, then running contour detection on a high-resolution frame.';
 
 		clearAutodetectSession();
 		autodetectAttemptsRemaining = SETUP_AUTODETECT_ATTEMPTS;
 		busyLabel = 'Detecting board';
-		if (!detectionWorker) {
-			void warmCvModule();
-		}
+		void warmCvModule();
 		scheduleAutodetectTick(0);
 	}
 

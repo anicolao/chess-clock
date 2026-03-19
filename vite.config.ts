@@ -1,7 +1,8 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { createReadStream, readFileSync } from 'fs';
+import { resolve } from 'path';
 
 // Helper to get git info
 const getGitHash = () => {
@@ -24,9 +25,43 @@ const getGitDirty = () => {
 };
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf-8'));
+const opencvBrowserScriptPath = resolve('node_modules/@techstark/opencv-js/dist/opencv.js');
+
+const serveOpenCvBrowserScript = () => ({
+	name: 'serve-opencv-browser-script',
+	configureServer(server: {
+		middlewares: {
+			use: (path: string, handler: (req: unknown, res: {
+				setHeader: (name: string, value: string) => void;
+			}, next: (error?: Error) => void) => void) => void;
+		};
+	}) {
+		server.middlewares.use('/vendor/opencv.js', (_req, res, next) => {
+			try {
+				res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+				createReadStream(opencvBrowserScriptPath).pipe(res as unknown as NodeJS.WritableStream);
+			} catch (error) {
+				next(error instanceof Error ? error : new Error('Failed to serve OpenCV browser script.'));
+			}
+		});
+	},
+	generateBundle(this: {
+		emitFile: (asset: {
+			type: 'asset';
+			fileName: string;
+			source: string | Uint8Array;
+		}) => void;
+	}) {
+		this.emitFile({
+			type: 'asset',
+			fileName: 'vendor/opencv.js',
+			source: readFileSync(opencvBrowserScriptPath)
+		});
+	}
+});
 
 export default defineConfig({
-	plugins: [sveltekit()],
+	plugins: [serveOpenCvBrowserScript(), sveltekit()],
 	worker: {
 		format: 'es'
 	},
