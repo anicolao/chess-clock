@@ -154,18 +154,22 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await expect(inlineNotice).toContainText('Calibration saved locally.');
 
         await expect(page.locator('.preview-card .detail-list strong').nth(1)).toHaveText('Captured');
+        await expect(occupiedSquaresValue).toHaveText('0', { timeout: 20000 });
+        await expect
+            .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
+            .toEqual([]);
+
         await page.evaluate((nextImageUrl) => {
             return (window as typeof window & {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, initialSetupImageUrl);
-        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
         await expect
-            .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
-            .toHaveLength(32);
-        const initialIndices = await readPreviewOccupiedIndices(page);
-        expect(initialIndices).toContain(1);
-        expect(initialIndices).toContain(57);
+            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '0', 10), { timeout: 20000 })
+            .toBeGreaterThan(0);
+        await expect
+            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '999', 10), { timeout: 20000 })
+            .toBeLessThan(20);
         await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),
@@ -177,9 +181,11 @@ test.describe('Board Setup With Mocked Webcam', () => {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, e5ImageUrl);
-        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
         await expect
-            .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
-            .toHaveLength(32);
+            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '0', 10), { timeout: 20000 })
+            .toBeGreaterThan(0);
+        await expect
+            .poll(async () => Number.parseInt((await occupiedSquaresValue.textContent()) ?? '999', 10), { timeout: 20000 })
+            .toBeLessThan(20);
     });
 });

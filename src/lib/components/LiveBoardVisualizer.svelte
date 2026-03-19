@@ -7,8 +7,6 @@
 	import {
 		analyzeBoardFrame,
 		boardLooksEmpty,
-		selectTopOccupiedIndices,
-		trackOccupiedIndices,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
@@ -47,7 +45,6 @@
 	let mounted = false;
 	let calibration = $state<ReturnType<typeof loadBoardCalibration>>(loadBoardCalibration());
 	let loadedReferenceUrl = $state<string | null>(null);
-	let trackedOccupiedIndices = $state<number[]>([]);
 
 	const effectiveCameraUrl = $derived(cameraUrl || calibration?.cameraUrl || DEFAULT_CAMERA_URL);
 	const streamSrc = $derived(
@@ -218,7 +215,6 @@
 			statusLabel = 'Set up board';
 			streamEnabled = false;
 			streamReady = false;
-			trackedOccupiedIndices = [];
 			stopBrowserCamera();
 			scheduleProcessing(1600);
 			return;
@@ -242,7 +238,6 @@
 				? await loadImageDataFromUrl(calibration.referenceImageDataUrl)
 				: null;
 			loadedReferenceUrl = calibration.referenceImageDataUrl;
-			trackedOccupiedIndices = [];
 		}
 
 		processing = true;
@@ -269,9 +264,7 @@
 				? []
 				: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
 					? []
-					: trackedOccupiedIndices.length === 0
-						? selectTopOccupiedIndices(analysis.scores, 32)
-						: trackOccupiedIndices(trackedOccupiedIndices, analysis.scores);
+					: analysis.occupiedIndices;
 			const context = boardCanvas.getContext('2d');
 			if (!context) {
 				throw new Error('2D canvas is unavailable.');
@@ -286,10 +279,6 @@
 				statusLabel = `${resolvedOccupiedIndices.length} occupied`;
 			} else {
 				statusLabel = 'Capture empty board';
-				trackedOccupiedIndices = [];
-			}
-			if (referenceImageData) {
-				trackedOccupiedIndices = [...resolvedOccupiedIndices];
 			}
 
 			errorMessage = null;
