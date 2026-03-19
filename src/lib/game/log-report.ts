@@ -4,6 +4,23 @@ import type { GameLogReport, GameState } from '$lib/game/types';
 
 const ISSUE_URL = 'https://github.com/anicolao/chess-clock/issues/new';
 
+function buildIssueUrl(report: GameLogReport, fileName: string) {
+	const title = `Game log report: ${report.gameId}`;
+	const body = [
+		'## Summary',
+		`- Game ID: \`${report.gameId}\``,
+		`- Generated: ${new Date(report.generatedAtMs).toISOString()}`,
+		`- Move captures: ${report.summary.moveCaptureCount}`,
+		`- Active player: ${report.summary.activePlayer ?? 'none'}`,
+		`- Winner: ${report.summary.winner ?? 'none'}`,
+		'',
+		'## Attachment',
+		`Attach the downloaded \`${fileName}\` JSON file to this issue.`,
+		'The report includes the Redux action log, move-completion payloads, and calibration snapshot needed for debugging or test-case generation.'
+	].join('\n');
+	return `${ISSUE_URL}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+}
+
 function downloadReport(report: GameLogReport) {
 	const fileName = `chess-clock-log-report-${report.gameId}.json`;
 	const blob = new Blob([JSON.stringify(report, null, 2)], {
@@ -19,25 +36,17 @@ function downloadReport(report: GameLogReport) {
 }
 
 function openIssue(report: GameLogReport, fileName: string, issueWindow?: Window | null) {
-	const title = `Game log report: ${report.gameId}`;
-	const body = [
-		'## Summary',
-		`- Game ID: \`${report.gameId}\``,
-		`- Generated: ${new Date(report.generatedAtMs).toISOString()}`,
-		`- Move captures: ${report.summary.moveCaptureCount}`,
-		`- Active player: ${report.summary.activePlayer ?? 'none'}`,
-		`- Winner: ${report.summary.winner ?? 'none'}`,
-		'',
-		'## Attachment',
-		`Attach the downloaded \`${fileName}\` JSON file to this issue.`,
-		'The report includes the Redux action log, move-completion payloads, and calibration snapshot needed for debugging or test-case generation.'
-	].join('\n');
-	const issueUrl = `${ISSUE_URL}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+	const issueUrl = buildIssueUrl(report, fileName);
 	if (issueWindow) {
-		issueWindow.location.href = issueUrl;
+		try {
+			issueWindow.opener = null;
+		} catch {
+			// Ignore browsers that disallow mutating opener on the placeholder window.
+		}
+		issueWindow.location.replace(issueUrl);
 		return;
 	}
-	window.open(issueUrl, '_blank', 'noopener');
+	window.open(issueUrl, '_blank');
 }
 
 export async function exportCurrentGameLogReport(gameState: GameState, issueWindow?: Window | null) {

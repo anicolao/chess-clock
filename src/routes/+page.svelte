@@ -141,7 +141,11 @@
 
   async function createLogReport() {
     reportStatus = 'Preparing log report';
-    const issueWindow = window.open('', '_blank', 'noopener');
+    const issueWindow = window.open('about:blank', '_blank');
+    if (issueWindow) {
+      issueWindow.document.title = 'Preparing issue draft';
+      issueWindow.document.body.innerHTML = '<p style="font-family: sans-serif; padding: 1rem;">Preparing GitHub issue draft…</p>';
+    }
     try {
       await exportCurrentGameLogReport(gameStore.getState().game, issueWindow);
       gameStore.dispatch(logReportPrepared({ preparedAtMs: Date.now() }));
