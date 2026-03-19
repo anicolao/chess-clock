@@ -39,11 +39,17 @@ nix develop -c bash -c "
 "
 ```
 
+### Firmware Build (test or production)
+```bash
+nix develop -c firmware/build.sh test        # Mock camera + mock WiFi (QEMU)
+nix develop -c firmware/build.sh production  # Real OV2640 + real WiFi/NVS/mDNS (hardware)
+```
+
 ### Firmware QEMU Emulation Test
 ```bash
+nix develop -c firmware/build.sh test
 nix develop -c bash -c "
   cd firmware
-  idf.py build                                                    # Cross-compile for ESP32-S3
   pytest --embedded-services idf,qemu --target esp32s3 test_app.py  # Run in QEMU
 "
 ```
