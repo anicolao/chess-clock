@@ -1671,48 +1671,17 @@ function inferOccupiedIndices(scores: number[]) {
 	return sorted.slice(0, Math.min(inferredCount, 32)).map((entry) => entry.index);
 }
 
-export function selectTopOccupiedIndices(scores: number[], count: number) {
-	return scores
-		.map((score, index) => ({ score, index }))
-		.sort((a, b) => b.score - a.score)
-		.slice(0, Math.min(count, scores.length))
-		.map((entry) => entry.index);
-}
-
-function totalOccupiedScore(scores: number[], occupiedIndices: number[]) {
-	return occupiedIndices.reduce((sum, index) => sum + scores[index], 0);
-}
-
-export function trackOccupiedIndices(previousOccupiedIndices: number[], scores: number[]) {
-	if (previousOccupiedIndices.length === 0) {
-		return [];
-	}
-
-	const previousSet = new Set(previousOccupiedIndices);
-	const currentlyOccupied = [...previousSet];
-	const currentlyEmpty = [];
-	for (let index = 0; index < scores.length; index++) {
-		if (!previousSet.has(index)) currentlyEmpty.push(index);
-	}
-
-	const currentScore = totalOccupiedScore(scores, currentlyOccupied);
-	let bestIndices = [...previousOccupiedIndices].sort((a, b) => a - b);
-	let bestScore = currentScore;
-
-	for (const removeIndex of currentlyOccupied) {
-		for (const addIndex of currentlyEmpty) {
-			const transitionScore = currentScore - scores[removeIndex] + scores[addIndex];
-			if (transitionScore > bestScore) {
-				bestScore = transitionScore;
-				bestIndices = currentlyOccupied
-					.filter((index) => index !== removeIndex)
-					.concat(addIndex)
-					.sort((a, b) => a - b);
-			}
-		}
-	}
-
-	return bestScore >= currentScore + 1.4 ? bestIndices : [...previousOccupiedIndices].sort((a, b) => a - b);
+export function classifyOccupiedIndicesFromReference(referenceScores: number[], textureScores: number[]) {
+	return referenceScores
+		.map((referenceScore, index) => ({
+			index,
+			referenceScore,
+			textureScore: textureScores[index] ?? 0
+		}))
+		.filter(({ referenceScore, textureScore }) =>
+			referenceScore >= 22 || (referenceScore >= 16 && textureScore >= 10)
+		)
+		.map(({ index }) => index);
 }
 
 export function boardLooksEmpty(referenceScores: number[]) {
@@ -1762,8 +1731,8 @@ export function analyzeBoardFrame(
 		}
 	}
 
-	const occupiedIndices = referenceWarpGray && boardLooksEmpty(referenceScores)
-		? []
+	const occupiedIndices = referenceWarpGray
+		? (boardLooksEmpty(referenceScores) ? [] : classifyOccupiedIndicesFromReference(referenceScores, scores))
 		: inferOccupiedIndices(scores);
 	const boardImageData = imageDataFromMat(warpedBoard);
 
