@@ -1,7 +1,6 @@
 import type { BoardCalibration, NormalizedPoint } from '$lib/board-calibration';
 
 export const WARP_SIZE = 320;
-const OCCUPANCY_BOARD_INSET_CELLS = 0.45;
 
 export type ImagePoint = { x: number; y: number };
 type OpenCvModule = typeof import('@techstark/opencv-js');
@@ -1734,14 +1733,8 @@ export function analyzeBoardFrame(
 	cv.cvtColor(frameMat, frameGray, cv.COLOR_RGBA2GRAY, 0);
 
 	const quad = denormalizeQuad(normalizedQuad, frameImageData.width, frameImageData.height);
-	const occupancyQuad = [
-		boardPointToImage(cv, quad, OCCUPANCY_BOARD_INSET_CELLS, OCCUPANCY_BOARD_INSET_CELLS),
-		boardPointToImage(cv, quad, 8 - OCCUPANCY_BOARD_INSET_CELLS, OCCUPANCY_BOARD_INSET_CELLS),
-		boardPointToImage(cv, quad, 8 - OCCUPANCY_BOARD_INSET_CELLS, 8 - OCCUPANCY_BOARD_INSET_CELLS),
-		boardPointToImage(cv, quad, OCCUPANCY_BOARD_INSET_CELLS, 8 - OCCUPANCY_BOARD_INSET_CELLS)
-	] as [ImagePoint, ImagePoint, ImagePoint, ImagePoint];
-	const warpedBoard = warpQuad(cv, frameMat, occupancyQuad, WARP_SIZE);
-	const warpedGray = warpQuad(cv, frameGray, occupancyQuad, WARP_SIZE);
+	const warpedBoard = warpQuad(cv, frameMat, quad, WARP_SIZE);
+	const warpedGray = warpQuad(cv, frameGray, quad, WARP_SIZE);
 
 	let referenceWarpGray: InstanceType<OpenCvModule['Mat']> | null = null;
 	if (referenceImageData) {
@@ -1753,33 +1746,7 @@ export function analyzeBoardFrame(
 			referenceImageData.width,
 			referenceImageData.height
 		);
-		const referenceOccupancyQuad = [
-			boardPointToImage(
-				cv,
-				referenceQuad,
-				OCCUPANCY_BOARD_INSET_CELLS,
-				OCCUPANCY_BOARD_INSET_CELLS
-			),
-			boardPointToImage(
-				cv,
-				referenceQuad,
-				8 - OCCUPANCY_BOARD_INSET_CELLS,
-				OCCUPANCY_BOARD_INSET_CELLS
-			),
-			boardPointToImage(
-				cv,
-				referenceQuad,
-				8 - OCCUPANCY_BOARD_INSET_CELLS,
-				8 - OCCUPANCY_BOARD_INSET_CELLS
-			),
-			boardPointToImage(
-				cv,
-				referenceQuad,
-				OCCUPANCY_BOARD_INSET_CELLS,
-				8 - OCCUPANCY_BOARD_INSET_CELLS
-			)
-		] as [ImagePoint, ImagePoint, ImagePoint, ImagePoint];
-		referenceWarpGray = warpQuad(cv, referenceGray, referenceOccupancyQuad, WARP_SIZE);
+		referenceWarpGray = warpQuad(cv, referenceGray, referenceQuad, WARP_SIZE);
 		referenceMat.delete();
 		referenceGray.delete();
 	}
