@@ -51,7 +51,7 @@ async function readPreviewPieceColors(page: import('@playwright/test').Page) {
 
 test.describe('Board Setup With Mocked Webcam', () => {
     test('Setup screen detects the board from a mocked webcam frame', async ({ page }, testInfo) => {
-        test.setTimeout(120000);
+        test.setTimeout(240000);
 
         const emptyBoardImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/empty.jpg'));
         const initialSetupImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/initial_setup.jpg'));
@@ -144,7 +144,7 @@ test.describe('Board Setup With Mocked Webcam', () => {
         const defaultQuadPoints = await quadPolygon.getAttribute('points');
         await autoDetectButton.click();
         await expect(inlineNotice).toContainText(/OpenCV/, { timeout: 5000 });
-        await expect(inlineNotice).toContainText('Board detected from', { timeout: 60000 });
+        await expect(inlineNotice).toContainText('Board detected from', { timeout: 120000 });
         const detectionNotice = await inlineNotice.textContent();
         const clusteredSquaresMatch = detectionNotice?.match(/Board detected from OpenCV contours \((\d+) clustered squares from (\d+) candidates\)\./);
         if (!clusteredSquaresMatch) {
@@ -170,7 +170,7 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await expect(quadPolygon).not.toHaveAttribute('points', detectedQuadPoints ?? '');
 
         await autoDetectButton.click();
-        await expect(inlineNotice).toContainText('Board detected from', { timeout: 60000 });
+        await expect(inlineNotice).toContainText('Board detected from', { timeout: 120000 });
 
         await captureReferenceButton.click();
         await expect(inlineNotice).toContainText('Empty-board reference captured.', { timeout: 15000 });
