@@ -103,6 +103,8 @@ test.describe('Board Setup With Mocked Webcam', () => {
         const liveFrameStatus = page.locator('.card-title').filter({ hasText: 'Live Frame' }).locator('span').nth(1);
         const inlineNotice = page.locator('.inline-notice');
         const occupiedSquaresValue = page.locator('.preview-card .detail-list strong').nth(2);
+        const thresholdValue = page.locator('.threshold-header strong');
+        const thresholdSlider = page.locator('#occupancy-threshold');
 
         await startWebcamButton.click();
 
@@ -149,6 +151,15 @@ test.describe('Board Setup With Mocked Webcam', () => {
 
         await captureReferenceButton.click();
         await expect(inlineNotice).toContainText('Empty-board reference captured.', { timeout: 15000 });
+        await expect(thresholdValue).toHaveText('1.50x');
+
+        await thresholdSlider.evaluate((node) => {
+            const input = node as HTMLInputElement;
+            input.value = '1.55';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        await expect(thresholdValue).toHaveText('1.55x');
 
         await saveCalibrationButton.click();
         await expect(inlineNotice).toContainText('Calibration saved locally.');

@@ -1,4 +1,8 @@
-import type { BoardCalibration, NormalizedPoint } from '$lib/board-calibration';
+import {
+	DEFAULT_OCCUPANCY_THRESHOLD,
+	type BoardCalibration,
+	type NormalizedPoint
+} from '$lib/board-calibration';
 
 export const WARP_SIZE = 320;
 
@@ -1671,7 +1675,15 @@ function inferOccupiedIndices(scores: number[]) {
 	return sorted.slice(0, Math.min(inferredCount, 32)).map((entry) => entry.index);
 }
 
-export function classifyOccupiedIndicesFromReference(referenceScores: number[], textureScores: number[]) {
+export function classifyOccupiedIndicesFromReference(
+	referenceScores: number[],
+	textureScores: number[],
+	occupancyThreshold = DEFAULT_OCCUPANCY_THRESHOLD
+) {
+	const strictReferenceThreshold = 22 * occupancyThreshold;
+	const softReferenceThreshold = 16 * occupancyThreshold;
+	const textureThreshold = 10;
+
 	return referenceScores
 		.map((referenceScore, index) => ({
 			index,
@@ -1679,7 +1691,8 @@ export function classifyOccupiedIndicesFromReference(referenceScores: number[], 
 			textureScore: textureScores[index] ?? 0
 		}))
 		.filter(({ referenceScore, textureScore }) =>
-			referenceScore >= 22 || (referenceScore >= 16 && textureScore >= 10)
+			referenceScore >= strictReferenceThreshold
+				|| (referenceScore >= softReferenceThreshold && textureScore >= textureThreshold)
 		)
 		.map(({ index }) => index);
 }
@@ -1695,7 +1708,8 @@ export function analyzeBoardFrame(
 	cv: OpenCvModule,
 	frameImageData: ImageData,
 	normalizedQuad: BoardCalibration['normalizedQuad'],
-	referenceImageData: ImageData | null
+	referenceImageData: ImageData | null,
+	occupancyThreshold = DEFAULT_OCCUPANCY_THRESHOLD
 ) {
 	const frameMat = matFromImageData(cv, frameImageData);
 	const frameGray = new cv.Mat();
@@ -1732,7 +1746,11 @@ export function analyzeBoardFrame(
 	}
 
 	const occupiedIndices = referenceWarpGray
-		? (boardLooksEmpty(referenceScores) ? [] : classifyOccupiedIndicesFromReference(referenceScores, scores))
+		? (
+			boardLooksEmpty(referenceScores)
+				? []
+				: classifyOccupiedIndicesFromReference(referenceScores, scores, occupancyThreshold)
+		)
 		: inferOccupiedIndices(scores);
 	const boardImageData = imageDataFromMat(warpedBoard);
 
