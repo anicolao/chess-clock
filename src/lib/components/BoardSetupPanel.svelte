@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 
 	import {
+		DEFAULT_OCCUPANCY_THRESHOLD,
 		clearBoardCalibration,
 		type CameraMode,
 		cloneQuad,
@@ -33,6 +34,9 @@
 	const SETUP_AUTODETECT_INTERVAL_MS = 200;
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
+	const OCCUPANCY_THRESHOLD_MIN = 0.8;
+	const OCCUPANCY_THRESHOLD_MAX = 2.2;
+	const OCCUPANCY_THRESHOLD_STEP = 0.05;
 
 	let {
 		initialCameraUrl = DEFAULT_CAMERA_URL
@@ -49,6 +53,7 @@
 	let cameraUrl = $state(DEFAULT_CAMERA_URL);
 	let normalizedQuad = $state(createDefaultQuad());
 	let referenceImageDataUrl = $state<string | null>(null);
+	let occupancyThreshold = $state(DEFAULT_OCCUPANCY_THRESHOLD);
 	let detectedBoardScore = $state<number | null>(null);
 	let cameraFrameReady = $state(false);
 	let busyLabel = $state<string | null>(null);
@@ -97,7 +102,7 @@
 	});
 
 	$effect(() => {
-		if (!cameraFrameReady || !referenceImageDataUrl || busyLabel) {
+		if (!cameraFrameReady || !referenceImageDataUrl || busyLabel || occupancyThreshold <= 0) {
 			clearPreviewRefreshLoop();
 			return;
 		}
@@ -114,6 +119,7 @@
 				: (savedCalibration.cameraUrl || initialCameraUrl);
 			normalizedQuad = cloneQuad(savedCalibration.normalizedQuad);
 			referenceImageDataUrl = savedCalibration.referenceImageDataUrl;
+			occupancyThreshold = savedCalibration.occupancyThreshold;
 			savedAt = savedCalibration.updatedAt;
 		} else {
 			cameraMode = initialCameraUrl !== DEFAULT_CAMERA_URL ? 'remote' : 'browser';
@@ -534,6 +540,7 @@
 			cameraUrl,
 			normalizedQuad,
 			referenceImageDataUrl,
+			occupancyThreshold,
 			updatedAt: Date.now()
 		};
 
@@ -556,6 +563,7 @@
 		normalizedQuad = createDefaultQuad();
 		referenceImageDataUrl = null;
 		referenceImageData = null;
+		occupancyThreshold = DEFAULT_OCCUPANCY_THRESHOLD;
 		detectedBoardScore = null;
 		savedAt = null;
 		clearBoardCalibration();
@@ -628,7 +636,13 @@
 		}
 		if (!activeCv) return;
 		const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
-		const analysis = analyzeBoardFrame(activeCv, frame, normalizedQuad, referenceImageData);
+		const analysis = analyzeBoardFrame(
+			activeCv,
+			frame,
+			normalizedQuad,
+			referenceImageData,
+			occupancyThreshold
+		);
 		const resolvedOccupiedIndices = !referenceImageData
 			? []
 			: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
@@ -650,6 +664,10 @@
 			dateStyle: 'medium',
 			timeStyle: 'short'
 		}).format(timestamp);
+	}
+
+	function formatThreshold(value: number) {
+		return `${value.toFixed(2)}x`;
 	}
 </script>
 
@@ -839,6 +857,24 @@
 				data-occupancy-scores={previewOccupancyScores.map((score) => score.toFixed(2)).join(',')}
 				data-reference-scores={previewReferenceScores.map((score) => score.toFixed(2)).join(',')}
 			></canvas>
+			<div class="threshold-control">
+				<div class="threshold-header">
+					<label for="occupancy-threshold">Occupancy threshold</label>
+					<strong>{formatThreshold(occupancyThreshold)}</strong>
+				</div>
+				<input
+					id="occupancy-threshold"
+					type="range"
+					min={OCCUPANCY_THRESHOLD_MIN}
+					max={OCCUPANCY_THRESHOLD_MAX}
+					step={OCCUPANCY_THRESHOLD_STEP}
+					bind:value={occupancyThreshold}
+					disabled={!hasReference}
+				/>
+				<p class="threshold-help">
+					Higher values ignore shadows and glare more aggressively. Lower values pick up subtler pieces.
+				</p>
+			</div>
 			<button class="action-btn" type="button" onclick={() => void renderPreview(true)} disabled={!cameraFrameReady || !!busyLabel}>
 				Refresh preview
 			</button>
@@ -855,6 +891,10 @@
 				<div>
 					<span>Occupied squares</span>
 					<strong>{previewOccupiedCount === null ? '-' : previewOccupiedCount}</strong>
+				</div>
+				<div>
+					<span>Threshold</span>
+					<strong>{formatThreshold(occupancyThreshold)}</strong>
 				</div>
 				<div>
 					<span>Last saved</span>
@@ -1090,6 +1130,47 @@
 		border-radius: 18px;
 		background: #0f172a;
 		image-rendering: auto;
+	}
+
+	.threshold-control {
+		margin-top: 0.9rem;
+		padding: 0.9rem 1rem;
+		border-radius: 16px;
+		background: rgba(15, 23, 42, 0.6);
+		border: 1px solid rgba(148, 163, 184, 0.14);
+	}
+
+	.threshold-header {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		align-items: baseline;
+		margin-bottom: 0.45rem;
+	}
+
+	.threshold-header label {
+		margin: 0;
+		font-size: 0.92rem;
+		color: #e2e8f0;
+	}
+
+	.threshold-header strong {
+		color: #d1fae5;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.threshold-control input {
+		width: 100%;
+		max-width: none;
+		padding: 0;
+		border: 0;
+		background: transparent;
+	}
+
+	.threshold-help {
+		margin: 0.45rem 0 0;
+		font-size: 0.85rem;
+		color: #cbd5e1;
 	}
 
 	.detail-list {

@@ -2,7 +2,11 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { base } from '$app/paths';
 
-	import { type CameraMode, loadBoardCalibration } from '$lib/board-calibration';
+	import {
+		DEFAULT_OCCUPANCY_THRESHOLD,
+		type CameraMode,
+		loadBoardCalibration
+	} from '$lib/board-calibration';
 	import { captureImageDataFromElement, loadImageDataFromUrl } from '$lib/vision/browser-images';
 	import {
 		analyzeBoardFrame,
@@ -258,7 +262,8 @@
 				activeCv,
 				frame,
 				calibration.normalizedQuad,
-				referenceImageData
+				referenceImageData,
+				calibration.occupancyThreshold ?? DEFAULT_OCCUPANCY_THRESHOLD
 			);
 			const resolvedOccupiedIndices = !referenceImageData
 				? []

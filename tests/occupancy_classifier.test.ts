@@ -10,16 +10,29 @@ describe('classifyOccupiedIndicesFromReference', () => {
 		referenceScores[12] = 24;
 		textureScores[12] = 12;
 
-		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores)).toEqual([12]);
+		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores, 1)).toEqual([12]);
 
 		referenceScores[62] = 31;
 		textureScores[62] = 15;
 
-		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores)).toEqual([12, 62]);
+		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores, 1)).toEqual([12, 62]);
 
 		referenceScores[62] = 6;
 		textureScores[62] = 3;
 
-		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores)).toEqual([12]);
+		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores, 1)).toEqual([12]);
+	});
+
+	it('raises the bar for low-confidence occupancy when the threshold is increased', () => {
+		const referenceScores = new Array(64).fill(6);
+		const textureScores = new Array(64).fill(3);
+
+		referenceScores[9] = 18;
+		textureScores[9] = 12;
+		referenceScores[40] = 33;
+		textureScores[40] = 16;
+
+		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores, 1)).toEqual([9, 40]);
+		expect(classifyOccupiedIndicesFromReference(referenceScores, textureScores, 1.35)).toEqual([40]);
 	});
 });
