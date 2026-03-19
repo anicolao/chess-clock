@@ -13,8 +13,11 @@
 	import { captureImageDataFromElement, imageDataToDataUrl, loadImageDataFromUrl } from '$lib/vision/browser-images';
 	import {
 		analyzeBoardFrame,
+		boardLooksEmpty,
 		localizeChessboardFromImageData,
 		normalizeQuad,
+		selectTopOccupiedIndices,
+		trackOccupiedIndices,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
@@ -55,6 +58,10 @@
 	let errorMessage = $state<string | null>(null);
 	let savedAt = $state<number | null>(null);
 	let previewOccupiedCount = $state<number | null>(null);
+	let previewOccupiedIndices = $state<number[]>([]);
+	let previewOccupancyScores = $state<number[]>([]);
+	let previewReferenceScores = $state<number[]>([]);
+	let trackedOccupiedIndices = $state<number[]>([]);
 	let dragHandleIndex = $state<number | null>(null);
 	let streamEnabled = $state(false);
 
@@ -509,6 +516,11 @@
 				coverAspectRatio: CAMERA_STAGE_ASPECT_RATIO
 			});
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
+			trackedOccupiedIndices = [];
+			previewOccupiedIndices = [];
+			previewOccupancyScores = [];
+			previewReferenceScores = [];
+			previewOccupiedCount = 0;
 			statusMessage = 'Empty-board reference captured. Save calibration to use it from the clock.';
 			if (cvModule) {
 				void renderPreview();
@@ -550,6 +562,7 @@
 		referenceImageData = null;
 		detectedBoardScore = null;
 		savedAt = null;
+		trackedOccupiedIndices = [];
 		clearBoardCalibration();
 		statusMessage = 'Saved calibration cleared. Adjust the quad and capture a new empty-board reference.';
 		errorMessage = null;
@@ -601,6 +614,10 @@
 
 		if (!referenceImageDataUrl) {
 			previewOccupiedCount = null;
+			previewOccupiedIndices = [];
+			previewOccupancyScores = [];
+			previewReferenceScores = [];
+			trackedOccupiedIndices = [];
 			context.fillStyle = '#0f172a';
 			context.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
 			context.fillStyle = '#cbd5e1';
@@ -618,11 +635,22 @@
 		if (!activeCv) return;
 		const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
 		const analysis = analyzeBoardFrame(activeCv, frame, normalizedQuad, referenceImageData);
+		const resolvedOccupiedIndices = !referenceImageData
+			? []
+			: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
+				? []
+				: trackedOccupiedIndices.length === 0
+					? selectTopOccupiedIndices(analysis.scores, 32)
+					: trackOccupiedIndices(trackedOccupiedIndices, analysis.scores);
 		previewCanvas.width = WARP_SIZE;
 		previewCanvas.height = WARP_SIZE;
 		context.putImageData(analysis.boardImageData, 0, 0);
-		drawOccupancyOverlay(context, analysis.occupiedIndices);
-		previewOccupiedCount = analysis.occupiedIndices.length;
+		drawOccupancyOverlay(context, resolvedOccupiedIndices);
+		previewOccupiedCount = resolvedOccupiedIndices.length;
+		previewOccupiedIndices = [...resolvedOccupiedIndices].sort((a, b) => a - b);
+		previewOccupancyScores = [...analysis.scores];
+		previewReferenceScores = [...analysis.referenceScores];
+		trackedOccupiedIndices = [...resolvedOccupiedIndices];
 	}
 
 	function formatTime(timestamp: number | null) {
@@ -811,7 +839,15 @@
 				<span>{hasReference ? 'Live occupancy' : 'Warp only'}</span>
 			</div>
 
-			<canvas bind:this={previewCanvas} class="preview-canvas" width={WARP_SIZE} height={WARP_SIZE}></canvas>
+			<canvas
+				bind:this={previewCanvas}
+				class="preview-canvas"
+				width={WARP_SIZE}
+				height={WARP_SIZE}
+				data-occupied-indices={previewOccupiedIndices.join(',')}
+				data-occupancy-scores={previewOccupancyScores.map((score) => score.toFixed(2)).join(',')}
+				data-reference-scores={previewReferenceScores.map((score) => score.toFixed(2)).join(',')}
+			></canvas>
 			<button class="action-btn" type="button" onclick={() => void renderPreview(true)} disabled={!cameraFrameReady || !!busyLabel}>
 				Refresh preview
 			</button>
