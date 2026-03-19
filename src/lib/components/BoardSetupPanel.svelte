@@ -11,9 +11,9 @@
 		type BoardCalibration
 	} from '$lib/board-calibration';
 	import { captureImageDataFromElement, imageDataToDataUrl, loadImageDataFromUrl } from '$lib/vision/browser-images';
+	import { estimateCheckerboardQuad } from '$lib/vision/checkerboard-fast';
 	import {
 		analyzeBoardFrame,
-		localizeChessboardFromImageData,
 		normalizeQuad,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
@@ -23,7 +23,7 @@
 
 	const HANDLE_RADIUS = 0.034;
 	const HANDLE_GRAB_RADIUS = 0.14;
-	const SETUP_ANALYSIS_MAX_DIMENSION = 640;
+	const SETUP_ANALYSIS_MAX_DIMENSION = 384;
 	const SETUP_REFERENCE_MAX_DIMENSION = 720;
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
@@ -308,23 +308,19 @@
 	async function autodetectBoard() {
 		busyLabel = 'Detecting board';
 		errorMessage = null;
-		statusMessage = 'Scanning the current frame for an 8x8 chessboard.';
+		statusMessage = 'Scanning the current frame for a checkerboard pattern.';
 
 		try {
 			await waitForNextPaint();
-			const activeCv = await ensureCvModule();
-			if (!activeCv) {
-				return;
-			}
 			const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
-			const detection = localizeChessboardFromImageData(activeCv, frame);
-			if (!detection) {
+			const estimatedQuad = estimateCheckerboardQuad(frame);
+			if (!estimatedQuad) {
 				throw new Error('No chessboard candidate was found in the current frame.');
 			}
 
-			normalizedQuad = normalizeQuad(detection.quad, frame.width, frame.height);
-			detectedBoardScore = detection.score;
-			statusMessage = `Board detected from ${detection.selectedCount} square candidates.`;
+			normalizedQuad = normalizeQuad(estimatedQuad, frame.width, frame.height);
+			detectedBoardScore = null;
+			statusMessage = 'Board estimate applied. Drag the corners to match the board precisely.';
 			await renderPreview();
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Board detection failed.';

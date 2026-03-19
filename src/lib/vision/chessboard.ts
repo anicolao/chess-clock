@@ -744,6 +744,44 @@ export function localizeChessboardFromImageData(cv: OpenCvModule, imageData: Ima
 		: null;
 }
 
+export function localizeChessboardFromImageDataFast(cv: OpenCvModule, imageData: ImageData) {
+	const src = matFromImageData(cv, imageData);
+	const gray = new cv.Mat();
+	cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+
+	const candidates = detectSquareCandidates(cv, gray, src.rows * src.cols);
+	const selectedSquares = selectBoardSquares(candidates);
+	const initialQuads = fitInitialBoardQuads(cv, selectedSquares);
+
+	let bestDetection: { quad: ImagePoint[]; score: number } | null = null;
+	for (const quad of initialQuads) {
+		if (!isConvexQuad(quad)) continue;
+		const area = quadArea(quad);
+		const center = meanPoint(quad);
+		const centerDistance = Math.hypot(center.x - src.cols / 2, center.y - src.rows / 2);
+		const score = area - centerDistance * 0.35;
+
+		if (!bestDetection || score > bestDetection.score) {
+			bestDetection = {
+				quad,
+				score
+			};
+		}
+	}
+
+	src.delete();
+	gray.delete();
+
+	return bestDetection
+		? {
+			quad: bestDetection.quad as [ImagePoint, ImagePoint, ImagePoint, ImagePoint],
+			score: bestDetection.score,
+			candidateCount: candidates.length,
+			selectedCount: selectedSquares.length
+		}
+		: null;
+}
+
 function scoreOccupancyCell(
 	gray: InstanceType<OpenCvModule['Mat']>,
 	referenceGray: InstanceType<OpenCvModule['Mat']> | null,
