@@ -1,10 +1,17 @@
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class CameraEmulator {
     private server: http.Server;
     public port: number = 0;
+    private streamFrame: Buffer;
 
     constructor() {
+        this.streamFrame = fs.readFileSync(
+            path.join(process.cwd(), 'tests/images/game/empty.jpg')
+        );
+
         this.server = http.createServer((req, res) => {
             // Set CORS headers so the web app can reach it
             res.setHeader('Access-Control-Allow-Origin', '*');
@@ -19,6 +26,12 @@ export class CameraEmulator {
             if (req.url === '/api/status' && req.method === 'GET') {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+            } else if (req.url?.startsWith('/stream') && req.method === 'GET') {
+                res.writeHead(200, {
+                    'Content-Type': 'image/jpeg',
+                    'Cache-Control': 'no-store'
+                });
+                res.end(this.streamFrame);
             } else {
                 res.writeHead(404);
                 res.end();
