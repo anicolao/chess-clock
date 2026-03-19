@@ -174,23 +174,23 @@ test.describe('Board Setup With Mocked Webcam', () => {
 
         await captureReferenceButton.click();
         await expect(inlineNotice).toContainText('Empty-board reference captured.', { timeout: 15000 });
-        await expect(thresholdValue).toHaveText('3.50x');
+        await expect(thresholdValue).toHaveText('3.25x');
 
         await thresholdSlider.evaluate((node) => {
             const input = node as HTMLInputElement;
-            input.value = '3.55';
+            input.value = '3.30';
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.dispatchEvent(new Event('change', { bubbles: true }));
         });
-        await expect(thresholdValue).toHaveText('3.55x');
+        await expect(thresholdValue).toHaveText('3.30x');
 
         await thresholdSlider.evaluate((node) => {
             const input = node as HTMLInputElement;
-            input.value = '3.5';
+            input.value = '3.25';
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.dispatchEvent(new Event('change', { bubbles: true }));
         });
-        await expect(thresholdValue).toHaveText('3.50x');
+        await expect(thresholdValue).toHaveText('3.25x');
 
         await saveCalibrationButton.click();
         await expect(inlineNotice).toContainText('Calibration saved locally.');
@@ -206,13 +206,13 @@ test.describe('Board Setup With Mocked Webcam', () => {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, initialSetupImageUrl);
-        await expect(occupiedSquaresValue).toHaveText('31', { timeout: 20000 });
+        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
         await expect
             .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
-            .toHaveLength(31);
+            .toHaveLength(32);
         await expect
             .poll(() => readPreviewPieceColors(page), { timeout: 20000 })
-            .toHaveLength(31);
+            .toHaveLength(32);
         await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),
@@ -222,17 +222,23 @@ test.describe('Board Setup With Mocked Webcam', () => {
         const pieceColors = await readPreviewPieceColors(page);
         const whitePieceCount = pieceColors.filter((piece) => piece.color === 'white').length;
         const blackPieceCount = pieceColors.filter((piece) => piece.color === 'black').length;
-        expect(whitePieceCount).toBeGreaterThanOrEqual(10);
-        expect(blackPieceCount).toBeGreaterThanOrEqual(10);
-        expect(Math.abs(whitePieceCount - blackPieceCount)).toBeLessThanOrEqual(11);
+        expect(whitePieceCount).toBe(16);
+        expect(blackPieceCount).toBe(16);
 
-        const rowCounts = Array.from({ length: 8 }, () => ({ white: 0, black: 0 }));
-        const colCounts = Array.from({ length: 8 }, () => ({ white: 0, black: 0 }));
+        const rowCounts: Array<Record<'white' | 'black', number>> = Array.from(
+            { length: 8 },
+            () => ({ white: 0, black: 0 })
+        );
+        const colCounts: Array<Record<'white' | 'black', number>> = Array.from(
+            { length: 8 },
+            () => ({ white: 0, black: 0 })
+        );
         for (const piece of pieceColors) {
             const row = Math.floor(piece.index / 8);
             const col = piece.index % 8;
-            rowCounts[row][piece.color] += 1;
-            colCounts[col][piece.color] += 1;
+            const color = piece.color as 'white' | 'black';
+            rowCounts[row][color] += 1;
+            colCounts[col][color] += 1;
         }
 
         const hasColoredEdgeBands = (bands: Array<{ white: number; black: number }>) => {
@@ -255,9 +261,9 @@ test.describe('Board Setup With Mocked Webcam', () => {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, e5ImageUrl);
-        await expect(occupiedSquaresValue).toHaveText('31', { timeout: 20000 });
+        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
         await expect
             .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
-            .toHaveLength(31);
+            .toHaveLength(32);
     });
 });

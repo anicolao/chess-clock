@@ -2,7 +2,7 @@ import { browser } from '$app/environment';
 
 export type NormalizedPoint = { x: number; y: number };
 export type CameraMode = 'browser' | 'remote';
-export const DEFAULT_OCCUPANCY_THRESHOLD = 3.5;
+export const DEFAULT_OCCUPANCY_THRESHOLD = 3.25;
 
 export type BoardCalibration = {
 	cameraMode: CameraMode;
