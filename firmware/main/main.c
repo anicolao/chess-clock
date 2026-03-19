@@ -6,24 +6,28 @@
 #include "camera_hal.h"
 #include "provisioning.h"
 #include "http_server.h"
+#include "wifi_prov.h"
+#include "sdkconfig.h"
 
 prov_ctx_t prov_ctx;
 static bool server_started = false;
 
-bool wifi_connect_mock(const char *ssid, const char *password) {
+#ifndef CONFIG_USE_REAL_WIFI_PROV
+static bool wifi_connect_mock(const char *ssid, const char *password) {
     printf("Connecting to Wi-Fi SSID: %s\n", ssid);
     return true;
 }
 
-bool credentials_save_mock(const char *ssid, const char *password, const char *token) {
+static bool credentials_save_mock(const char *ssid, const char *password, const char *token) {
     printf("Saving credentials to NVS: token=%s\n", token);
     return true;
 }
 
-bool mdns_announce_mock(void) {
+static bool mdns_announce_mock(void) {
     printf("Announcing via mDNS...\n");
     return true;
 }
+#endif
 
 void app_main(void)
 {
@@ -33,9 +37,15 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     prov_init(&prov_ctx);
+#ifdef CONFIG_USE_REAL_WIFI_PROV
+    prov_set_wifi_connect_cb(&prov_ctx, wifi_prov_connect);
+    prov_set_credentials_save_cb(&prov_ctx, wifi_prov_save_credentials);
+    prov_set_mdns_announce_cb(&prov_ctx, wifi_prov_mdns_announce);
+#else
     prov_set_wifi_connect_cb(&prov_ctx, wifi_connect_mock);
     prov_set_credentials_save_cb(&prov_ctx, credentials_save_mock);
     prov_set_mdns_announce_cb(&prov_ctx, mdns_announce_mock);
+#endif
 
     if (!camera_hal_init()) {
         printf("Failed to initialize camera HAL\n");

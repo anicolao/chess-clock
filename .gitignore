@@ -26,3 +26,7 @@ vite.config.ts.timestamp-*
 playwright-report/
 test-results/
 firmware/build/
+firmware/build_host/
+firmware/managed_components/
+firmware/__pycache__/
+firmware/.venv/
