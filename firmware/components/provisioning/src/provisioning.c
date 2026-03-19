@@ -48,13 +48,13 @@ bool prov_parse_qr_payload(prov_ctx_t *ctx, const char *json_payload) {
     if (cJSON_IsString(ssid) && (ssid->valuestring != NULL) &&
         cJSON_IsString(password) && (password->valuestring != NULL) &&
         cJSON_IsString(token) && (token->valuestring != NULL)) {
-        
+
         strncpy(ctx->ssid, ssid->valuestring, sizeof(ctx->ssid) - 1);
         ctx->ssid[sizeof(ctx->ssid) - 1] = '\0';
-        
+
         strncpy(ctx->password, password->valuestring, sizeof(ctx->password) - 1);
         ctx->password[sizeof(ctx->password) - 1] = '\0';
-        
+
         strncpy(ctx->token, token->valuestring, sizeof(ctx->token) - 1);
         ctx->token[sizeof(ctx->token) - 1] = '\0';
 
@@ -95,7 +95,9 @@ bool prov_decode_qr_image(prov_ctx_t *ctx, const uint8_t *image_data, int width,
     if (!ctx || !image_data) return false;
 
     struct quirc *q = quirc_new();
-    if (!q) return false;
+    if (!q) {
+        return false;
+    }
 
     if (quirc_resize(q, width, height) < 0) {
         quirc_destroy(q);
@@ -108,21 +110,30 @@ bool prov_decode_qr_image(prov_ctx_t *ctx, const uint8_t *image_data, int width,
     quirc_end(q);
 
     int num_codes = quirc_count(q);
+    bool success = false;
+
     for (int i = 0; i < num_codes; i++) {
-        struct quirc_code code;
-        struct quirc_data data;
+        struct quirc_code code_obj; struct quirc_code *code = &code_obj; memset(code, 0, sizeof(*code));
+        struct quirc_data data_obj; struct quirc_data *data = &data_obj; memset(data, 0, sizeof(*data));
 
-        quirc_extract(q, i, &code);
+        quirc_extract(q, i, code);
 
-        quirc_decode_error_t err = quirc_decode(&code, &data);
+        quirc_decode_error_t err = quirc_decode(code, data);
         if (err == 0) {
-            bool success = prov_parse_qr_payload(ctx, (const char *)data.payload);
-            quirc_destroy(q);
-            return success;
-        } else {
+            if (data->payload_len < sizeof(data->payload)) {
+                data->payload[data->payload_len] = '\0';
+            } else {
+                data->payload[sizeof(data->payload) - 1] = '\0';
+            }
+
+            success = prov_parse_qr_payload(ctx, (const char *)data->payload);
+
+            if (success) {
+                break;
+            }
         }
     }
 
     quirc_destroy(q);
-    return false;
+    return success;
 }
