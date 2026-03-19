@@ -10,6 +10,8 @@
 	type OpenCvModule = typeof import('@techstark/opencv-js');
 
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
+	const LIVE_ANALYSIS_INTERVAL_MS = 650;
+	const LIVE_CAPTURE_MAX_DIMENSION = 640;
 
 	let {
 		cameraUrl = DEFAULT_CAMERA_URL,
@@ -33,8 +35,9 @@
 	let cvModule = $state<OpenCvModule | null>(null);
 	let referenceImageData: ImageData | null = null;
 	let mediaStream: MediaStream | null = null;
-	let processingIntervalId: ReturnType<typeof setInterval> | null = null;
+	let processingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let processing = false;
+	let mounted = false;
 	let calibration = $state<ReturnType<typeof loadBoardCalibration>>(loadBoardCalibration());
 	let loadedReferenceUrl = $state<string | null>(null);
 
@@ -61,6 +64,7 @@
 	});
 
 	onMount(async () => {
+		mounted = true;
 		calibration = loadBoardCalibration();
 		cameraMode = calibration?.cameraMode ?? 'browser';
 		if (calibration?.referenceImageDataUrl) {
@@ -74,24 +78,37 @@
 
 		if (calibration?.normalizedQuad) {
 			if (cameraMode === 'browser') {
+				statusLabel = 'Starting camera';
 				void startBrowserCamera();
 			} else {
 				streamEnabled = true;
+				statusLabel = 'Connecting camera';
 			}
 		}
 
-		processingIntervalId = setInterval(() => {
-			void processFrame();
-		}, 850);
-		void processFrame();
+		scheduleProcessing(120);
 	});
 
 	onDestroy(() => {
-		if (processingIntervalId) {
-			clearInterval(processingIntervalId);
-		}
+		mounted = false;
+		clearScheduledProcessing();
 		stopBrowserCamera();
 	});
+
+	function clearScheduledProcessing() {
+		if (processingTimeoutId) {
+			clearTimeout(processingTimeoutId);
+			processingTimeoutId = null;
+		}
+	}
+
+	function scheduleProcessing(delay = LIVE_ANALYSIS_INTERVAL_MS) {
+		if (!mounted) return;
+		clearScheduledProcessing();
+		processingTimeoutId = setTimeout(() => {
+			void processFrame();
+		}, delay);
+	}
 
 	function stopBrowserCamera() {
 		mediaStream?.getTracks().forEach((track) => track.stop());
@@ -103,10 +120,12 @@
 		streamEnabled = true;
 		streamReady = false;
 		errorMessage = null;
+		statusLabel = 'Starting camera';
 
 		if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
 			errorMessage = 'Browser camera requires a secure context.';
 			statusLabel = 'Camera unavailable';
+			scheduleProcessing(1600);
 			return;
 		}
 
@@ -126,6 +145,8 @@
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to open the browser camera.';
 			statusLabel = 'Camera unavailable';
+		} finally {
+			scheduleProcessing(800);
 		}
 	}
 
@@ -180,15 +201,32 @@
 	async function processFrame() {
 		const source = cameraMode === 'browser' ? streamVideo : streamImage;
 		if (processing || !boardCanvas || !snapshotCanvas || !source || !streamReady) {
+			scheduleProcessing(streamReady ? LIVE_ANALYSIS_INTERVAL_MS : 800);
 			return;
 		}
 
 		calibration = loadBoardCalibration();
 		if (!calibration) {
 			statusLabel = 'Set up board';
+			streamEnabled = false;
+			streamReady = false;
+			stopBrowserCamera();
+			scheduleProcessing(1600);
 			return;
 		}
-		cameraMode = calibration.cameraMode;
+		if (calibration.cameraMode !== cameraMode) {
+			cameraMode = calibration.cameraMode;
+			streamReady = false;
+			if (cameraMode === 'browser') {
+				void startBrowserCamera();
+			} else {
+				stopBrowserCamera();
+				streamEnabled = true;
+				statusLabel = 'Connecting camera';
+			}
+			scheduleProcessing(600);
+			return;
+		}
 
 		if (calibration.referenceImageDataUrl !== loadedReferenceUrl) {
 			referenceImageData = calibration.referenceImageDataUrl
@@ -203,10 +241,13 @@
 			const activeCv = await ensureCvModule();
 			if (!activeCv) {
 				statusLabel = 'Loading vision';
+				scheduleProcessing(1200);
 				return;
 			}
 
-			const frame = captureImageDataFromElement(source, snapshotCanvas);
+			const frame = captureImageDataFromElement(source, snapshotCanvas, {
+				maxDimension: LIVE_CAPTURE_MAX_DIMENSION
+			});
 			const analysis = analyzeBoardFrame(
 				activeCv,
 				frame,
@@ -237,6 +278,7 @@
 			statusLabel = 'Camera unavailable';
 		} finally {
 			processing = false;
+			scheduleProcessing(LIVE_ANALYSIS_INTERVAL_MS);
 		}
 	}
 </script>
@@ -253,7 +295,7 @@
 			onloadeddata={() => {
 				streamReady = true;
 				errorMessage = null;
-				void processFrame();
+				scheduleProcessing(0);
 			}}
 		></video>
 	{:else}
@@ -267,7 +309,7 @@
 			onload={() => {
 				streamReady = true;
 				errorMessage = null;
-				void processFrame();
+				scheduleProcessing(0);
 			}}
 			onerror={() => {
 				streamReady = false;
