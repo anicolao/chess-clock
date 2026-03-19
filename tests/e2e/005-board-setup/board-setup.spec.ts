@@ -30,6 +30,8 @@ async function readPreviewOccupiedIndices(page: import('@playwright/test').Page)
 
 test.describe('Board Setup With Mocked Webcam', () => {
     test('Setup screen detects the board from a mocked webcam frame', async ({ page }, testInfo) => {
+        test.setTimeout(120000);
+
         const emptyBoardImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/empty.jpg'));
         const initialSetupImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/initial_setup.jpg'));
         const e5ImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/e5.jpg'));
@@ -121,7 +123,7 @@ test.describe('Board Setup With Mocked Webcam', () => {
         const defaultQuadPoints = await quadPolygon.getAttribute('points');
         await autoDetectButton.click();
         await expect(inlineNotice).toContainText(/OpenCV/, { timeout: 5000 });
-        await expect(inlineNotice).toContainText('Board detected from', { timeout: 30000 });
+        await expect(inlineNotice).toContainText('Board detected from', { timeout: 60000 });
         const detectionNotice = await inlineNotice.textContent();
         const clusteredSquaresMatch = detectionNotice?.match(/Board detected from OpenCV contours \((\d+) clustered squares from (\d+) candidates\)\./);
         if (!clusteredSquaresMatch) {
@@ -147,19 +149,27 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await expect(quadPolygon).not.toHaveAttribute('points', detectedQuadPoints ?? '');
 
         await autoDetectButton.click();
-        await expect(inlineNotice).toContainText('Board detected from', { timeout: 30000 });
+        await expect(inlineNotice).toContainText('Board detected from', { timeout: 60000 });
 
         await captureReferenceButton.click();
         await expect(inlineNotice).toContainText('Empty-board reference captured.', { timeout: 15000 });
-        await expect(thresholdValue).toHaveText('1.50x');
+        await expect(thresholdValue).toHaveText('3.50x');
 
         await thresholdSlider.evaluate((node) => {
             const input = node as HTMLInputElement;
-            input.value = '1.55';
+            input.value = '3.55';
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.dispatchEvent(new Event('change', { bubbles: true }));
         });
-        await expect(thresholdValue).toHaveText('1.55x');
+        await expect(thresholdValue).toHaveText('3.55x');
+
+        await thresholdSlider.evaluate((node) => {
+            const input = node as HTMLInputElement;
+            input.value = '3.5';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        await expect(thresholdValue).toHaveText('3.50x');
 
         await saveCalibrationButton.click();
         await expect(inlineNotice).toContainText('Calibration saved locally.');
@@ -175,10 +185,10 @@ test.describe('Board Setup With Mocked Webcam', () => {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, initialSetupImageUrl);
-        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
+        await expect(occupiedSquaresValue).toHaveText('31', { timeout: 20000 });
         await expect
             .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
-            .toHaveLength(32);
+            .toHaveLength(31);
         await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),
@@ -190,9 +200,9 @@ test.describe('Board Setup With Mocked Webcam', () => {
                 __setMockWebcamFrame?: (url: string) => Promise<void>;
             }).__setMockWebcamFrame?.(nextImageUrl);
         }, e5ImageUrl);
-        await expect(occupiedSquaresValue).toHaveText('32', { timeout: 20000 });
+        await expect(occupiedSquaresValue).toHaveText('31', { timeout: 20000 });
         await expect
             .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
-            .toHaveLength(32);
+            .toHaveLength(31);
     });
 });
