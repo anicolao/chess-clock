@@ -1435,6 +1435,18 @@ function inferOccupiedIndices(scores: number[]) {
 		inferredCount = Math.min(aboveThreshold.length, 32);
 	}
 
+	// When the board transitions from an empty captured reference to the initial setup,
+	// the top 32 cells separate sharply from the rest even though the absolute threshold
+	// above may only classify a few extreme outliers as occupied.
+	if (
+		inferredCount <= 4
+		&& sorted.length >= 33
+		&& sorted[31].score >= 20
+		&& sorted[31].score >= sorted[32].score * 1.75
+	) {
+		return sorted.slice(0, 32).map((entry) => entry.index);
+	}
+
 	return sorted.slice(0, Math.min(inferredCount, 32)).map((entry) => entry.index);
 }
 
