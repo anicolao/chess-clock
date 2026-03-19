@@ -12,5 +12,5 @@ Reference board score: 933.2. Lattice cells matched: 41. Color separation: 195.0
 | 03-e6 | ![Overlay](images/out/occupancy/game/03-e6.jpg) | ![Warp](images/out/occupancy/game/03-e6_warp.jpg) | e6 | 32 | 2 cells changed |
 | 04-d4 | ![Overlay](images/out/occupancy/game/04-d4.jpg) | ![Warp](images/out/occupancy/game/04-d4_warp.jpg) | d4 | 32 | 2 cells changed |
 | 05-e5 | ![Overlay](images/out/occupancy/game/05-e5.jpg) | ![Warp](images/out/occupancy/game/05-e5_warp.jpg) | e5 | 32 | 2 cells changed |
-| 06-c5 | ![Overlay](images/out/occupancy/game/06-c5.jpg) | ![Warp](images/out/occupancy/game/06-c5_warp.jpg) | c5 | 32 | 2 cells changed |
-| 07-nc3 | ![Overlay](images/out/occupancy/game/07-nc3.jpg) | ![Warp](images/out/occupancy/game/07-nc3_warp.jpg) | Nc3 | 32 | 2 cells changed |
+| 06-nc3 | ![Overlay](images/out/occupancy/game/06-nc3.jpg) | ![Warp](images/out/occupancy/game/06-nc3_warp.jpg) | Nc3 | 32 | 2 cells changed |
+| 07-c5 | ![Overlay](images/out/occupancy/game/07-c5.jpg) | ![Warp](images/out/occupancy/game/07-c5_warp.jpg) | c5 | 32 | 2 cells changed |

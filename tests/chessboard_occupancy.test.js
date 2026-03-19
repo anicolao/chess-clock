@@ -24,8 +24,8 @@ const GAME_SEQUENCE = [
     { input: 'e6.jpg', output: '03-e6.jpg', label: '03-e6', move: 'e6' },
     { input: 'd4.jpg', output: '04-d4.jpg', label: '04-d4', move: 'd4' },
     { input: 'e5.jpg', output: '05-e5.jpg', label: '05-e5', move: 'e5' },
-    { input: 'c5.jpg', output: '06-c5.jpg', label: '06-c5', move: 'c5' },
-    { input: 'nc3.jpg', output: '07-nc3.jpg', label: '07-nc3', move: 'Nc3' }
+    { input: 'nc3.jpg', output: '06-nc3.jpg', label: '06-nc3', move: 'Nc3' },
+    { input: 'c5.jpg', output: '07-c5.jpg', label: '07-c5', move: 'c5' }
 ];
 
 function ensureParentDir(filePath) {
