@@ -21,7 +21,7 @@
 - [x] A detected corner handle can still be dragged afterward
 - [x] The empty-board reference can be captured and saved locally
 - [x] The occupancy threshold slider updates live and saves with calibration
-- [x] Switching the mocked webcam to `tests/images/game/initial_setup.jpg` updates the live occupancy preview to 31 occupied squares at the shadow-resistant `3.5x` baseline
+- [x] Switching the mocked webcam to `tests/images/game/initial_setup.jpg` updates the live occupancy preview to 32 occupied squares at the `3.25x` baseline
 - [x] The occupied-square markers classify into both white and black piece colors in the browser preview
 
 ---
