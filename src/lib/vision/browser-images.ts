@@ -145,3 +145,13 @@ export function drawImageDataToCanvas(
 	context.putImageData(imageData, 0, 0);
 	return context;
 }
+
+export function imageDataFrameToDataUrl(
+	imageData: ImageData,
+	type = 'image/jpeg',
+	quality = 0.9
+) {
+	const canvas = document.createElement('canvas');
+	drawImageDataToCanvas(canvas, imageData);
+	return canvas.toDataURL(type, quality);
+}

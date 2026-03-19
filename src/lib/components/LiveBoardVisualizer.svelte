@@ -15,6 +15,14 @@
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
+	import { imageDataFrameToDataUrl } from '$lib/vision/browser-images';
+	import { MoveCaptureEngine } from '$lib/game/move-capture-engine';
+	import {
+		gameStore,
+		moveCaptureStateUpdated,
+		moveCompletionCommitted
+	} from '$lib/game/store';
+	import type { GameState } from '$lib/game/types';
 
 	type OpenCvModule = typeof import('@techstark/opencv-js');
 
@@ -50,6 +58,10 @@
 	let mounted = false;
 	let calibration = $state<ReturnType<typeof loadBoardCalibration>>(loadBoardCalibration());
 	let loadedReferenceUrl = $state<string | null>(null);
+	let game = $state<GameState>(gameStore.getState().game);
+	let storeUnsubscribe: (() => void) | null = null;
+
+	const moveCaptureEngine = new MoveCaptureEngine();
 
 	const effectiveCameraUrl = $derived(cameraUrl || calibration?.cameraUrl || DEFAULT_CAMERA_URL);
 	const streamSrc = $derived(
@@ -74,6 +86,14 @@
 	});
 
 	onMount(async () => {
+		storeUnsubscribe = gameStore.subscribe(() => {
+			const nextGame = gameStore.getState().game;
+			if (nextGame.sessionId !== game.sessionId) {
+				moveCaptureEngine.reset('idle', 'new-game-session');
+			}
+			game = nextGame;
+		});
+
 		mounted = true;
 		calibration = loadBoardCalibration();
 		cameraMode = calibration?.cameraMode ?? 'browser';
@@ -103,6 +123,7 @@
 		mounted = false;
 		clearScheduledProcessing();
 		stopBrowserCamera();
+		storeUnsubscribe?.();
 	});
 
 	function clearScheduledProcessing() {
@@ -220,6 +241,8 @@
 
 		calibration = loadBoardCalibration();
 		if (!calibration) {
+			moveCaptureEngine.reset('uncalibrated', 'missing-calibration');
+			gameStore.dispatch(moveCaptureStateUpdated(moveCaptureEngine.getDiagnostics()));
 			statusLabel = 'Set up board';
 			streamEnabled = false;
 			streamReady = false;
@@ -290,8 +313,63 @@
 
 			if (referenceImageData) {
 				drawOverlay(context, resolvedOccupiedPieces);
-				statusLabel = `${resolvedOccupiedIndices.length} occupied`;
+				if (game.gameState === 'running') {
+					const decision = moveCaptureEngine.consumeSample({
+						timestampMs: Date.now(),
+						occupiedPieces: resolvedOccupiedPieces,
+						analysisHealth: {
+							boardMissing: false,
+							referenceMissing: false,
+							lowConfidence: false
+						}
+					});
+					gameStore.dispatch(moveCaptureStateUpdated(decision.diagnostics));
+
+					if (decision.commit) {
+						gameStore.dispatch(moveCompletionCommitted({
+							captureId: `${game.sessionId}-move-${decision.commit.moveIndex.toString().padStart(3, '0')}`,
+							gameId: game.sessionId,
+							moveIndex: decision.commit.moveIndex,
+							capturedAtMs: Date.now(),
+							source: cameraMode === 'browser' ? 'browser-webcam' : 'remote-camera',
+							calibrationVersion: calibration.updatedAt,
+							occupancyThreshold: calibration.occupancyThreshold ?? DEFAULT_OCCUPANCY_THRESHOLD,
+							acceptedAfterSamples: decision.commit.acceptedAfterSamples,
+							acceptedAfterMs: decision.commit.acceptedAfterMs,
+							previousFingerprint: decision.commit.previousFingerprint,
+							nextFingerprint: decision.commit.nextFingerprint,
+							occupiedPieces: resolvedOccupiedPieces,
+							occupancyScores: [...analysis.scores],
+							referenceScores: [...analysis.referenceScores],
+							rawFrameDataUrl: snapshotCanvas.toDataURL('image/jpeg', 0.9),
+							warpedBoardDataUrl: imageDataFrameToDataUrl(analysis.boardImageData, 'image/jpeg', 0.92),
+							rawFrameSize: {
+								width: frame.width,
+								height: frame.height
+							},
+							warpSize: {
+								width: analysis.boardImageData.width,
+								height: analysis.boardImageData.height
+							},
+							analysisHealth: {
+								boardMissing: false,
+								referenceMissing: false,
+								lowConfidence: false
+							},
+							changedSquareIndices: decision.commit.changedSquareIndices
+						}));
+						statusLabel = `Move ${decision.commit.moveIndex} captured`;
+					} else {
+						statusLabel = `${resolvedOccupiedIndices.length} occupied · ${decision.diagnostics.state}`;
+					}
+				} else {
+					moveCaptureEngine.reset('idle', 'game-not-running');
+					gameStore.dispatch(moveCaptureStateUpdated(moveCaptureEngine.getDiagnostics()));
+					statusLabel = `${resolvedOccupiedIndices.length} occupied`;
+				}
 			} else {
+				moveCaptureEngine.reset('uncalibrated', 'missing-reference');
+				gameStore.dispatch(moveCaptureStateUpdated(moveCaptureEngine.getDiagnostics()));
 				statusLabel = 'Capture empty board';
 			}
 
