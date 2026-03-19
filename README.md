@@ -1,6 +1,8 @@
 # Chess Logger & Clock
 
 [![E2E Tests](https://github.com/anicolao/chess-clock/actions/workflows/e2e.yml/badge.svg)](https://github.com/anicolao/chess-clock/actions/workflows/e2e.yml)
+[![Firmware Unit Tests](https://github.com/anicolao/chess-clock/actions/workflows/firmware-unit-tests.yml/badge.svg)](https://github.com/anicolao/chess-clock/actions/workflows/firmware-unit-tests.yml)
+[![Firmware Emulation Tests](https://github.com/anicolao/chess-clock/actions/workflows/firmware-emulation-tests.yml/badge.svg)](https://github.com/anicolao/chess-clock/actions/workflows/firmware-emulation-tests.yml)
 
 An automatic chess game logger and clock that uses an IP camera to detect moves and advance the clock.
 
