@@ -1,64 +1,82 @@
+import { base } from '$app/paths';
 import { browser } from '$app/environment';
-import opencvScriptUrl from '@techstark/opencv-js/dist/opencv.js?url';
 
 type OpenCvModule = typeof import('@techstark/opencv-js');
-type OpenCvRuntime = OpenCvModule & {
-	onRuntimeInitialized?: () => void;
+type OpenCvReady = {
+	cv: OpenCvModule;
 };
 
 declare global {
 	interface Window {
-		cv?: OpenCvRuntime;
+		cv?: OpenCvModule;
 	}
 }
 
 let openCvPromise: Promise<OpenCvModule> | null = null;
+const opencvScriptUrl = `${base}/vendor/opencv.js`;
 
-function loadOpenCvScript() {
-	return new Promise<OpenCvModule>((resolve, reject) => {
-		const existingCv = window.cv;
-		if (existingCv && typeof existingCv.Mat === 'function') {
-			resolve(existingCv);
-			return;
-		}
+function getReadyOpenCv() {
+	if (!window.cv || typeof window.cv.Mat !== 'function') {
+		return null;
+	}
 
-		const cv = existingCv ?? {} as OpenCvRuntime;
-		const previousInitializer = cv.onRuntimeInitialized;
-		cv.onRuntimeInitialized = () => {
-			previousInitializer?.();
-			if (window.cv && typeof window.cv.Mat === 'function') {
-				resolve(window.cv);
-			}
-		};
-		window.cv = cv;
+	if (typeof (window.cv as OpenCvModule & { then?: unknown }).then === 'function') {
+		Object.defineProperty(window.cv, 'then', {
+			value: undefined,
+			writable: true,
+			configurable: true
+		});
+	}
 
-		let pollAttempts = 0;
-		const maxPollAttempts = 400;
-		const pollId = window.setInterval(() => {
-			if (window.cv && typeof window.cv.Mat === 'function') {
-				window.clearInterval(pollId);
-				resolve(window.cv);
+	return window.cv;
+}
+
+function waitForOpenCvReady(timeoutMs = 15000) {
+	const readyCv = getReadyOpenCv();
+	if (readyCv) {
+		return Promise.resolve({ cv: readyCv } satisfies OpenCvReady);
+	}
+
+	return new Promise<OpenCvReady>((resolve, reject) => {
+		let elapsedMs = 0;
+		const intervalMs = 25;
+		const intervalId = window.setInterval(() => {
+			const cv = getReadyOpenCv();
+			if (cv) {
+				window.clearInterval(intervalId);
+				resolve({ cv });
 				return;
 			}
 
-			pollAttempts += 1;
-			if (pollAttempts >= maxPollAttempts) {
-				window.clearInterval(pollId);
+			elapsedMs += intervalMs;
+			if (elapsedMs >= timeoutMs) {
+				window.clearInterval(intervalId);
 				reject(new Error('OpenCV loaded in the browser but never became ready.'));
 			}
-		}, 25);
+		}, intervalMs);
+	});
+}
 
-		const existingScript = document.querySelector<HTMLScriptElement>('script[data-opencv-script="true"]');
-		if (existingScript) {
-			return;
-		}
+async function loadOpenCvScript(): Promise<OpenCvModule> {
+	const readyCv = getReadyOpenCv();
+	if (readyCv) {
+		return readyCv;
+	}
 
+	const existingScript = document.querySelector<HTMLScriptElement>('script[data-opencv-script="true"]');
+	if (existingScript) {
+		return (await waitForOpenCvReady()).cv;
+	}
+
+	return await new Promise<OpenCvModule>((resolve, reject) => {
 		const script = document.createElement('script');
 		script.src = opencvScriptUrl;
 		script.async = true;
 		script.dataset.opencvScript = 'true';
+		script.onload = () => {
+			void waitForOpenCvReady().then(({ cv }) => resolve(cv), reject);
+		};
 		script.onerror = () => {
-			window.clearInterval(pollId);
 			reject(new Error('Failed to load the OpenCV browser script.'));
 		};
 		document.head.append(script);
