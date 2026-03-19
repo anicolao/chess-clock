@@ -14,3 +14,10 @@ def test_provisioning_flow(dut: IdfDut):
     dut.expect("HTTP server started on port 80", timeout=5)
     dut.expect("Registered endpoints: /api/status, /capture", timeout=5)
     dut.expect(r"Capture endpoint ready: \d+x\d+, \d+ bytes available", timeout=5)
+
+    # Hardware integration self-tests (real NVS + mDNS in QEMU)
+    dut.expect("=== Hardware Integration Self-Test ===", timeout=5)
+    dut.expect("TEST NVS: Save OK", timeout=5)
+    dut.expect("TEST NVS: Load roundtrip OK", timeout=5)
+    dut.expect("TEST mDNS: Service registered OK", timeout=5)
+    dut.expect("=== Self-Test Complete ===", timeout=5)
