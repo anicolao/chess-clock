@@ -94,12 +94,25 @@
 <style>
   :global(html),
   :global(body) {
-    overflow: auto;
-    height: auto;
-    min-height: 100%;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    height: auto !important;
+    min-height: 100% !important;
+  }
+
+  :global(body) {
+    position: static !important;
+  }
+
+  :global(#svelte) {
+    min-height: 100vh;
+    overflow: visible !important;
   }
 
   .settings-page {
+    display: block;
+    width: 100%;
+    overflow: visible;
     color: white;
     padding: 2rem;
     background:
