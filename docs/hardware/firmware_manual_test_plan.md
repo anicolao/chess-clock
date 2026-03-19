@@ -16,49 +16,45 @@ Manual verification of the ESP32-S3 camera firmware on a physical XIAO ESP32S3 S
 
 ## Step 1: Build Firmware for Physical Hardware
 
-The default build uses mock callbacks (no real WiFi/camera). For hardware testing, enable the real implementations.
+From the repository root:
 
 ```bash
-cd firmware
-
-# Clean any previous QEMU-targeted build
-rm -rf build sdkconfig
-
-# Create sdkconfig.defaults.hardware for physical hardware
-cat > sdkconfig.defaults.hardware << 'EOF'
-CONFIG_IDF_TARGET="esp32s3"
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=65536
-CONFIG_MAIN_TASK_STACK_SIZE=65536
-CONFIG_USE_REAL_WIFI_PROV=y
-CONFIG_USE_MOCK_CAMERA=n
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_SPEED_80M=y
-EOF
-
-# Build with hardware config
-nix develop -c bash -c "
-  cd firmware
-  cp sdkconfig.defaults.hardware sdkconfig.defaults
-  idf.py set-target esp32s3
-  idf.py build
-"
+nix develop -c firmware/build.sh production
 ```
 
-**Expected**: Build completes successfully. Binary at `firmware/build/esp32_mvp.bin`.
+This builds with the real OV2640 camera driver, real WiFi/NVS/mDNS provisioning, and PSRAM enabled. The script prints the binary path and flash command when done.
+
+To build the test/QEMU variant instead:
+
+```bash
+nix develop -c firmware/build.sh test
+```
+
+**Expected output** (production):
+```
+=== Building firmware: PRODUCTION mode ===
+  Real OV2640 camera, real WiFi/NVS/mDNS, PSRAM enabled
+...
+================================================
+Build complete: production mode
+Binary: /path/to/firmware/build/esp32_mvp.bin
+================================================
+
+To flash and monitor:
+  cd firmware && idf.py -p /dev/tty.usbmodem* flash monitor
+```
 
 ## Step 2: Flash to Device
 
 Connect the XIAO ESP32S3 Sense via USB-C. It should appear as a serial port (typically `/dev/tty.usbmodem*` on macOS or `/dev/ttyACM0` on Linux).
 
+Run the flash command printed by the build script:
+
 ```bash
-nix develop -c bash -c "
-  cd firmware
-  idf.py -p /dev/tty.usbmodem* flash monitor
-"
+nix develop -c bash -c "cd firmware && idf.py -p PORT flash monitor"
 ```
 
-Replace `/dev/tty.usbmodem*` with the actual port. The `monitor` flag opens the serial console after flashing.
+Replace `PORT` with the actual serial port. The `monitor` flag opens the serial console after flashing.
 
 **Expected**: Flash succeeds, serial monitor opens, and you see:
 ```
@@ -174,7 +170,7 @@ Open `http://chess-cam.local/capture` in a browser. You should see a live camera
 ## Step 7: Verify NVS Credential Persistence
 
 1. Unplug the device (power cycle)
-2. Plug it back in and open serial monitor: `nix develop -c idf.py -p /dev/tty.usbmodem* monitor`
+2. Plug it back in and open serial monitor: `nix develop -c bash -c "cd firmware && idf.py -p PORT monitor"`
 
 **Current expected behavior**: The device re-enters provisioning mode (boot-time credential loading is not yet wired into the boot path — see FIRMWARE_TODO.md).
 
@@ -197,7 +193,7 @@ Open `http://chess-cam.local/capture` in a browser. You should see a live camera
 
 | Test | Verification | Pass Criteria |
 |------|-------------|---------------|
-| Build for hardware | `idf.py build` completes | No errors, binary produced |
+| Build for hardware | `firmware/build.sh production` | No errors, binary produced |
 | Flash & boot | Serial monitor | "ESP32S3 initialization complete." appears |
 | Camera capture | Serial monitor | "Frame received: 800x600" with non-zero length |
 | QR provisioning | Serial monitor | Full provisioning sequence in order |
