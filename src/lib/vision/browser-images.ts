@@ -1,20 +1,43 @@
 type FrameElement = HTMLImageElement | HTMLVideoElement;
 
+type CaptureOptions = {
+	maxDimension?: number;
+};
+
+function scaleToMaxDimension(width: number, height: number, maxDimension?: number) {
+	if (!maxDimension || maxDimension <= 0) {
+		return { width, height };
+	}
+
+	const largestDimension = Math.max(width, height);
+	if (!largestDimension || largestDimension <= maxDimension) {
+		return { width, height };
+	}
+
+	const scale = maxDimension / largestDimension;
+	return {
+		width: Math.max(1, Math.round(width * scale)),
+		height: Math.max(1, Math.round(height * scale))
+	};
+}
+
 export function captureImageDataFromElement(
 	source: FrameElement,
-	canvas: HTMLCanvasElement
+	canvas: HTMLCanvasElement,
+	options: CaptureOptions = {}
 ) {
-	const width = source instanceof HTMLVideoElement
+	const sourceWidth = source instanceof HTMLVideoElement
 		? (source.videoWidth || source.clientWidth)
 		: (source.naturalWidth || source.width);
-	const height = source instanceof HTMLVideoElement
+	const sourceHeight = source instanceof HTMLVideoElement
 		? (source.videoHeight || source.clientHeight)
 		: (source.naturalHeight || source.height);
 
-	if (!width || !height) {
+	if (!sourceWidth || !sourceHeight) {
 		throw new Error('Camera frame is not ready yet.');
 	}
 
+	const { width, height } = scaleToMaxDimension(sourceWidth, sourceHeight, options.maxDimension);
 	canvas.width = width;
 	canvas.height = height;
 
@@ -31,9 +54,10 @@ export function imageDataToDataUrl(
 	source: FrameElement,
 	canvas: HTMLCanvasElement,
 	type = 'image/jpeg',
-	quality = 0.92
+	quality = 0.92,
+	options: CaptureOptions = {}
 ) {
-	captureImageDataFromElement(source, canvas);
+	captureImageDataFromElement(source, canvas, options);
 	return canvas.toDataURL(type, quality);
 }
 

@@ -23,6 +23,8 @@
 
 	const HANDLE_RADIUS = 0.034;
 	const HANDLE_GRAB_RADIUS = 0.14;
+	const SETUP_ANALYSIS_MAX_DIMENSION = 640;
+	const SETUP_REFERENCE_MAX_DIMENSION = 720;
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
 
@@ -53,8 +55,6 @@
 	let cvModule: OpenCvModule | null = null;
 	let referenceImageData: ImageData | null = null;
 	let mediaStream: MediaStream | null = null;
-	let previewIntervalId: ReturnType<typeof setInterval> | null = null;
-	let previewPending = false;
 
 	const quadSegments = $derived([
 		[normalizedQuad[0], normalizedQuad[1]],
@@ -101,28 +101,24 @@
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
 		}
 
-		if (cameraMode === 'browser') {
-			void startBrowserCamera();
-		} else if (initialCameraUrl !== DEFAULT_CAMERA_URL || savedCalibration?.cameraMode === 'remote') {
-			enableRemoteCamera();
-		}
-
-		previewIntervalId = setInterval(() => {
-			void refreshPreview();
-		}, 900);
-		void refreshPreview();
+		statusMessage = cameraMode === 'browser'
+			? 'Tap Start webcam, then drag the corners or run auto-detect.'
+			: 'Connect the remote camera, then drag the corners or run auto-detect.';
 	});
 
 	onDestroy(() => {
-		if (previewIntervalId) {
-			clearInterval(previewIntervalId);
-		}
 		stopBrowserCamera();
 	});
 
 	function stopBrowserCamera() {
 		mediaStream?.getTracks().forEach((track) => track.stop());
 		mediaStream = null;
+	}
+
+	async function waitForNextPaint() {
+		await new Promise<void>((resolve) => {
+			requestAnimationFrame(() => resolve());
+		});
 	}
 
 	async function loadReferenceImage(dataUrl: string) {
@@ -147,7 +143,7 @@
 		normalizedQuad = nextQuad;
 		detectedBoardScore = null;
 		errorMessage = null;
-		void refreshPreview();
+		statusMessage = `Adjusting corner ${index + 1}. Save when the quad matches the board.`;
 	}
 
 	function findNearestHandleIndex(clientX: number, clientY: number) {
@@ -205,14 +201,16 @@
 		dragHandleIndex = null;
 	}
 
-	function captureFrame() {
+	function captureFrame(maxDimension = SETUP_ANALYSIS_MAX_DIMENSION) {
 		const source = cameraMode === 'browser' ? streamVideo : streamImage;
 		if (!source || !snapshotCanvas) {
 			throw new Error('Live camera frame is unavailable.');
 		}
 
 		try {
-			return captureImageDataFromElement(source, snapshotCanvas);
+			return captureImageDataFromElement(source, snapshotCanvas, {
+				maxDimension
+			});
 		} catch (error) {
 			throw new Error(
 				error instanceof Error
@@ -232,9 +230,10 @@
 			: BROWSER_CAMERA_NOTICE;
 
 		if (mode === 'browser') {
-			void startBrowserCamera();
+			statusMessage = 'Tap Start webcam to begin the browser camera.';
 		} else {
 			stopBrowserCamera();
+			statusMessage = 'Tap Connect camera to start the remote stream.';
 		}
 	}
 
@@ -292,6 +291,7 @@
 		try {
 			busyLabel = 'Loading vision';
 			statusMessage = 'Loading OpenCV so the board can be analyzed.';
+			await waitForNextPaint();
 			cvModule = await loadOpenCv();
 			statusMessage = 'Vision ready. You can auto-detect the board or drag the corners manually.';
 			return cvModule;
@@ -311,11 +311,12 @@
 		statusMessage = 'Scanning the current frame for an 8x8 chessboard.';
 
 		try {
+			await waitForNextPaint();
 			const activeCv = await ensureCvModule();
 			if (!activeCv) {
 				return;
 			}
-			const frame = captureFrame();
+			const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
 			const detection = localizeChessboardFromImageData(activeCv, frame);
 			if (!detection) {
 				throw new Error('No chessboard candidate was found in the current frame.');
@@ -324,7 +325,7 @@
 			normalizedQuad = normalizeQuad(detection.quad, frame.width, frame.height);
 			detectedBoardScore = detection.score;
 			statusMessage = `Board detected from ${detection.selectedCount} square candidates.`;
-			await refreshPreview();
+			await renderPreview();
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Board detection failed.';
 		} finally {
@@ -338,15 +339,18 @@
 		statusMessage = 'Capturing the empty-board reference for occupancy tracking.';
 
 		try {
+			await waitForNextPaint();
 			const source = cameraMode === 'browser' ? streamVideo : streamImage;
 			if (!source || !snapshotCanvas) {
 				throw new Error('Live camera frame is unavailable.');
 			}
 
-			referenceImageDataUrl = imageDataToDataUrl(source, snapshotCanvas);
+			referenceImageDataUrl = imageDataToDataUrl(source, snapshotCanvas, 'image/jpeg', 0.9, {
+				maxDimension: SETUP_REFERENCE_MAX_DIMENSION
+			});
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
 			statusMessage = 'Empty-board reference captured. Save calibration to use it from the clock.';
-			await refreshPreview();
+			await renderPreview();
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to capture the empty-board reference.';
 		} finally {
@@ -387,7 +391,6 @@
 		clearBoardCalibration();
 		statusMessage = 'Saved calibration cleared. Adjust the quad and capture a new empty-board reference.';
 		errorMessage = null;
-		void refreshPreview();
 	}
 
 	function drawOccupancyOverlay(context: CanvasRenderingContext2D, occupiedIndices: number[]) {
@@ -426,39 +429,33 @@
 		}
 	}
 
-	async function refreshPreview() {
-		if (previewPending || !previewCanvas || !cameraFrameReady) {
+	async function renderPreview() {
+		if (!previewCanvas || !cameraFrameReady) return;
+
+		const context = previewCanvas.getContext('2d');
+		if (!context) return;
+
+		context.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+
+		if (!referenceImageDataUrl) {
+			context.fillStyle = '#0f172a';
+			context.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+			context.fillStyle = '#cbd5e1';
+			context.font = '14px sans-serif';
+			context.textAlign = 'center';
+			context.fillText('Capture empty board to preview occupancy', previewCanvas.width / 2, previewCanvas.height / 2);
 			return;
 		}
 
-		previewPending = true;
-
-		try {
-			const activeCv = await ensureCvModule();
-			if (!activeCv) {
-				return;
-			}
-			const frame = captureFrame();
-			const analysis = analyzeBoardFrame(activeCv, frame, normalizedQuad, referenceImageData);
-			const context = previewCanvas.getContext('2d');
-			if (!context) {
-				throw new Error('2D canvas is unavailable.');
-			}
-
-			previewCanvas.width = WARP_SIZE;
-			previewCanvas.height = WARP_SIZE;
-			context.putImageData(analysis.boardImageData, 0, 0);
-
-			if (referenceImageDataUrl) {
-				drawOccupancyOverlay(context, analysis.occupiedIndices);
-			}
-		} catch (error) {
-			if (error instanceof Error && !errorMessage) {
-				errorMessage = error.message;
-			}
-		} finally {
-			previewPending = false;
-		}
+		await waitForNextPaint();
+		const activeCv = await ensureCvModule();
+		if (!activeCv) return;
+		const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
+		const analysis = analyzeBoardFrame(activeCv, frame, normalizedQuad, referenceImageData);
+		previewCanvas.width = WARP_SIZE;
+		previewCanvas.height = WARP_SIZE;
+		context.putImageData(analysis.boardImageData, 0, 0);
+		drawOccupancyOverlay(context, analysis.occupiedIndices);
 	}
 
 	function formatTime(timestamp: number | null) {
@@ -540,7 +537,6 @@
 							cameraFrameReady = true;
 							statusMessage = 'Live camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
-							void refreshPreview();
 						}}
 					></video>
 				{:else}
@@ -554,7 +550,6 @@
 							cameraFrameReady = true;
 							statusMessage = 'Remote camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
-							void refreshPreview();
 						}}
 						onerror={() => {
 							cameraFrameReady = false;
@@ -650,6 +645,9 @@
 			</div>
 
 			<canvas bind:this={previewCanvas} class="preview-canvas" width={WARP_SIZE} height={WARP_SIZE}></canvas>
+			<button class="action-btn" type="button" onclick={renderPreview} disabled={!cameraFrameReady || !!busyLabel}>
+				Refresh preview
+			</button>
 
 			<div class="detail-list">
 				<div>
