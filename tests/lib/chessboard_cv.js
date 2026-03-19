@@ -3,26 +3,62 @@ import path from 'path';
 import cv from '@techstark/opencv-js';
 import { Jimp } from 'jimp';
 
+/** @typedef {any} CvMat */
+/** @typedef {any} CvScalar */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {Point[]} Quad */
+/** @typedef {[number, number, number]} RgbColor */
+/** @typedef {{mean: number, std: number}} GrayStats */
+/** @typedef {{center: Point, meanEdge: number, edgeRatio: number, angle: number}} SquareStats */
+/** @typedef {{id: number, pts: Quad, center: Point, area: number, meanEdge: number, angle: number}} SquareCandidate */
+/** @typedef {{uniqueCells: number, insideCount: number, meanResidual: number}} LatticeMetrics */
+/** @typedef {{colorSeparation: number, classSpread: number, averageCellStd: number, lineDelta: number, borderStrength: number}} AppearanceMetrics */
+/** @typedef {{totalScore: number, lattice: LatticeMetrics, appearance: AppearanceMetrics, boundsPenalty: number}} BoardMetrics */
+/** @typedef {{quad: Quad, metrics: BoardMetrics}} BoardDetection */
+/** @typedef {{quad: Quad | null, metrics: BoardMetrics | null, candidates: SquareCandidate[], selectedSquares: SquareCandidate[], edges: CvMat, dilated: CvMat}} LocalizationResult */
+
 export const WARP_SIZE = 320;
 
+/**
+ * @param {string} filePath
+ */
 function ensureParentDir(filePath) {
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * @param {number} value
+ * @param {number} min
+ * @param {number} max
+ * @returns {number}
+ */
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * @param {Point} p1
+ * @param {Point} p2
+ * @returns {number}
+ */
 function distance(p1, p2) {
     return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 }
 
+/**
+ * @param {number[]} values
+ * @returns {number}
+ */
 function mean(values) {
     if (values.length === 0) return 0;
     return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/**
+ * @param {number[]} values
+ * @returns {number}
+ */
 function median(values) {
     if (values.length === 0) return 0;
     const sorted = [...values].sort((a, b) => a - b);
@@ -30,6 +66,10 @@ function median(values) {
     return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
+/**
+ * @param {Point[]} points
+ * @returns {Point}
+ */
 function meanPoint(points) {
     let x = 0;
     let y = 0;
@@ -40,22 +80,40 @@ function meanPoint(points) {
     return { x: x / points.length, y: y / points.length };
 }
 
+/**
+ * @param {Point} p1
+ * @param {Point} p2
+ * @returns {number}
+ */
 function lineLength(p1, p2) {
     return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 }
 
+/**
+ * @param {number} angle
+ * @returns {number}
+ */
 function normalizeAngleDegrees(angle) {
     let normalized = angle % 180;
     if (normalized < 0) normalized += 180;
     return normalized;
 }
 
+/**
+ * @param {number} a
+ * @param {number} b
+ * @returns {number}
+ */
 function angleDifferenceDegrees(a, b) {
     let diff = Math.abs(normalizeAngleDegrees(a) - normalizeAngleDegrees(b));
     if (diff > 90) diff = 180 - diff;
     return diff;
 }
 
+/**
+ * @param {Point[]} points
+ * @returns {Quad}
+ */
 export function orderQuadPoints(points) {
     const byY = [...points].sort((a, b) => a.y - b.y);
     const top = byY.slice(0, 2).sort((a, b) => a.x - b.x);
@@ -63,6 +121,10 @@ export function orderQuadPoints(points) {
     return [...top, ...bottom];
 }
 
+/**
+ * @param {Quad} quad
+ * @returns {number}
+ */
 function quadArea(quad) {
     let area = 0;
     for (let i = 0; i < 4; i++) {
@@ -73,6 +135,10 @@ function quadArea(quad) {
     return Math.abs(area) / 2;
 }
 
+/**
+ * @param {Quad} quad
+ * @returns {boolean}
+ */
 function isConvexQuad(quad) {
     if (quad.length !== 4) return false;
     let sign = 0;
@@ -89,7 +155,12 @@ function isConvexQuad(quad) {
     return quadArea(quad) > 100;
 }
 
+/**
+ * @param {Quad} quad
+ * @returns {SquareStats}
+ */
 function getSquareStats(quad) {
+    /** @type {number[]} */
     const edgeLengths = [];
     for (let i = 0; i < 4; i++) {
         edgeLengths.push(lineLength(quad[i], quad[(i + 1) % 4]));
@@ -110,6 +181,11 @@ function getSquareStats(quad) {
     };
 }
 
+/**
+ * @param {CvMat} mat
+ * @param {string} outputPath
+ * @returns {Promise<void>}
+ */
 export async function writeMatImage(mat, outputPath) {
     ensureParentDir(outputPath);
 
@@ -144,9 +220,15 @@ export async function writeMatImage(mat, outputPath) {
         throw new Error(`Unsupported channel count: ${channels}`);
     }
 
-    await image.write(outputPath);
+    await image.write(/** @type {`${string}.${string}`} */ (outputPath));
 }
 
+/**
+ * @param {CvMat} mat
+ * @param {Quad} quad
+ * @param {number} [size]
+ * @returns {CvMat}
+ */
 export function warpQuad(mat, quad, size = WARP_SIZE) {
     const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, quad.flatMap((point) => [point.x, point.y]));
     const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, size, 0, size, size, 0, size]);
@@ -167,6 +249,14 @@ export function warpQuad(mat, quad, size = WARP_SIZE) {
     return warped;
 }
 
+/**
+ * @param {CvMat} gray
+ * @param {number} x0
+ * @param {number} y0
+ * @param {number} x1
+ * @param {number} y1
+ * @returns {GrayStats}
+ */
 function sampleGrayMeanStd(gray, x0, y0, x1, y1) {
     let sum = 0;
     let sumSq = 0;
@@ -187,6 +277,14 @@ function sampleGrayMeanStd(gray, x0, y0, x1, y1) {
     };
 }
 
+/**
+ * @param {CvMat} rgb
+ * @param {number} x0
+ * @param {number} y0
+ * @param {number} x1
+ * @param {number} y1
+ * @returns {RgbColor}
+ */
 function sampleRgbMean(rgb, x0, y0, x1, y1) {
     let r = 0;
     let g = 0;
@@ -207,10 +305,22 @@ function sampleRgbMean(rgb, x0, y0, x1, y1) {
     return [r / count, g / count, b / count];
 }
 
+/**
+ * @param {RgbColor} a
+ * @param {RgbColor} b
+ * @returns {number}
+ */
 function rgbDistance(a, b) {
     return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
+/**
+ * @param {CvMat} gray
+ * @param {boolean} isVertical
+ * @param {number} position
+ * @param {number} [thickness]
+ * @returns {number}
+ */
 function lineStrength(gray, isVertical, position, thickness = 2) {
     let sum = 0;
     let count = 0;
@@ -236,11 +346,17 @@ function lineStrength(gray, isVertical, position, thickness = 2) {
     return count === 0 ? 0 : sum / count;
 }
 
+/**
+ * @param {Quad} quad
+ * @param {SquareCandidate[]} selectedSquares
+ * @returns {LatticeMetrics}
+ */
 function getLatticeMetrics(quad, selectedSquares) {
     const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, quad.flatMap((point) => [point.x, point.y]));
     const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, 8, 0, 8, 8, 0, 8]);
     const transform = cv.getPerspectiveTransform(srcTri, dstTri);
 
+    /** @type {Map<string, number>} */
     const matchedCells = new Map();
     let insideCount = 0;
 
@@ -284,13 +400,22 @@ function getLatticeMetrics(quad, selectedSquares) {
     };
 }
 
+/**
+ * @param {CvMat} rgb
+ * @param {CvMat} gray
+ * @param {Quad} quad
+ * @returns {AppearanceMetrics}
+ */
 function getBoardAppearanceMetrics(rgb, gray, quad) {
     const warpedRgb = warpQuad(rgb, quad, WARP_SIZE);
     const warpedGray = warpQuad(gray, quad, WARP_SIZE);
     const cellSize = WARP_SIZE / 8;
 
+    /** @type {RgbColor[]} */
     const evenColors = [];
+    /** @type {RgbColor[]} */
     const oddColors = [];
+    /** @type {number[]} */
     const cellStdDeviations = [];
 
     for (let row = 0; row < 8; row++) {
@@ -310,6 +435,10 @@ function getBoardAppearanceMetrics(rgb, gray, quad) {
         }
     }
 
+    /**
+     * @param {RgbColor[]} colors
+     * @returns {RgbColor}
+     */
     const meanColor = (colors) => [
         mean(colors.map((color) => color[0])),
         mean(colors.map((color) => color[1])),
@@ -354,6 +483,12 @@ function getBoardAppearanceMetrics(rgb, gray, quad) {
     };
 }
 
+/**
+ * @param {Quad} quad
+ * @param {number} cols
+ * @param {number} rows
+ * @returns {number}
+ */
 function getOutOfBoundsPenalty(quad, cols, rows) {
     let overflow = 0;
     for (const point of quad) {
@@ -365,6 +500,15 @@ function getOutOfBoundsPenalty(quad, cols, rows) {
     return overflow / Math.max(cols, rows);
 }
 
+/**
+ * @param {CvMat} rgb
+ * @param {CvMat} gray
+ * @param {Quad} quad
+ * @param {SquareCandidate[]} selectedSquares
+ * @param {number} cols
+ * @param {number} rows
+ * @returns {BoardMetrics}
+ */
 function evaluateBoardHypothesis(rgb, gray, quad, selectedSquares, cols, rows) {
     if (!isConvexQuad(quad)) {
         return {
@@ -376,7 +520,8 @@ function evaluateBoardHypothesis(rgb, gray, quad, selectedSquares, cols, rows) {
                 averageCellStd: 999,
                 lineDelta: -999,
                 borderStrength: 0
-            }
+            },
+            boundsPenalty: Number.POSITIVE_INFINITY
         };
     }
 
@@ -401,6 +546,11 @@ function evaluateBoardHypothesis(rgb, gray, quad, selectedSquares, cols, rows) {
     };
 }
 
+/**
+ * @param {CvMat} gray
+ * @param {number} imageArea
+ * @returns {{ candidates: SquareCandidate[], edges: CvMat, dilated: CvMat }}
+ */
 function detectSquareCandidates(gray, imageArea) {
     const blurred = new cv.Mat();
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
@@ -416,6 +566,7 @@ function detectSquareCandidates(gray, imageArea) {
     const hierarchy = new cv.Mat();
     cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
 
+    /** @type {SquareCandidate[]} */
     const candidates = [];
 
     for (let i = 0; i < contours.size(); i++) {
@@ -461,6 +612,10 @@ function detectSquareCandidates(gray, imageArea) {
     return { candidates, edges, dilated };
 }
 
+/**
+ * @param {SquareCandidate[]} candidates
+ * @returns {SquareCandidate[]}
+ */
 function selectBoardSquares(candidates) {
     if (candidates.length <= 4) return candidates;
 
@@ -480,6 +635,7 @@ function selectBoardSquares(candidates) {
 
     const neighborDistance = medianEdge * 3.2;
     const visited = new Set();
+    /** @type {SquareCandidate[][]} */
     const components = [];
 
     for (const candidate of filtered) {
@@ -491,6 +647,7 @@ function selectBoardSquares(candidates) {
 
         while (queue.length > 0) {
             const current = queue.shift();
+            if (!current) continue;
             component.push(current);
 
             for (const neighbor of filtered) {
@@ -516,9 +673,14 @@ function selectBoardSquares(candidates) {
     return components[0] && components[0].length > 0 ? components[0] : filtered;
 }
 
+/**
+ * @param {SquareCandidate[]} selectedSquares
+ * @returns {Quad[]}
+ */
 function fitInitialBoardQuads(selectedSquares) {
     if (selectedSquares.length < 4) return [];
 
+    /** @type {number[]} */
     const coordinates = [];
     for (const square of selectedSquares) {
         for (const point of square.pts) {
@@ -527,6 +689,7 @@ function fitInitialBoardQuads(selectedSquares) {
     }
 
     const pointsMat = cv.matFromArray(selectedSquares.length * 4, 1, cv.CV_32SC2, coordinates);
+    /** @type {Quad[]} */
     const candidateQuads = [];
 
     const hull = new cv.Mat();
@@ -551,6 +714,7 @@ function fitInitialBoardQuads(selectedSquares) {
     hullApprox.delete();
     pointsMat.delete();
 
+    /** @type {Quad[]} */
     const deduped = [];
     for (const quad of candidateQuads) {
         const duplicate = deduped.some((existing) => {
@@ -566,6 +730,15 @@ function fitInitialBoardQuads(selectedSquares) {
     return deduped;
 }
 
+/**
+ * @param {CvMat} rgb
+ * @param {CvMat} gray
+ * @param {SquareCandidate[]} selectedSquares
+ * @param {Quad} initialQuad
+ * @param {number} cols
+ * @param {number} rows
+ * @returns {BoardDetection}
+ */
 function optimizeBoardQuad(rgb, gray, selectedSquares, initialQuad, cols, rows) {
     let bestQuad = initialQuad.map((point) => ({ x: point.x, y: point.y }));
     let bestMetrics = evaluateBoardHypothesis(rgb, gray, bestQuad, selectedSquares, cols, rows);
@@ -603,6 +776,12 @@ function optimizeBoardQuad(rgb, gray, selectedSquares, initialQuad, cols, rows) 
     return { quad: bestQuad, metrics: bestMetrics };
 }
 
+/**
+ * @param {CvMat} image
+ * @param {Quad} quad
+ * @param {CvScalar} color
+ * @param {number} thickness
+ */
 export function drawQuad(image, quad, color, thickness) {
     for (let i = 0; i < 4; i++) {
         const start = new cv.Point(quad[i].x, quad[i].y);
@@ -611,6 +790,9 @@ export function drawQuad(image, quad, color, thickness) {
     }
 }
 
+/**
+ * @param {CvMat} image
+ */
 export function drawWarpGrid(image) {
     const cellSize = image.cols / 8;
     for (let i = 1; i < 8; i++) {
@@ -627,6 +809,12 @@ export function drawWarpGrid(image) {
     );
 }
 
+/**
+ * @param {Quad} quad
+ * @param {number} boardX
+ * @param {number} boardY
+ * @returns {Point}
+ */
 export function boardPointToImage(quad, boardX, boardY) {
     const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, 8, 0, 8, 8, 0, 8]);
     const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, quad.flatMap((point) => [point.x, point.y]));
@@ -648,6 +836,10 @@ export function boardPointToImage(quad, boardX, boardY) {
     return result;
 }
 
+/**
+ * @param {CvMat} src
+ * @returns {LocalizationResult}
+ */
 export function localizeChessboard(src) {
     const rgb = new cv.Mat();
     cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB, 0);
@@ -659,6 +851,7 @@ export function localizeChessboard(src) {
     const selectedSquares = selectBoardSquares(candidates);
     const initialQuads = fitInitialBoardQuads(selectedSquares);
 
+    /** @type {BoardDetection | null} */
     let bestDetection = null;
     for (const quad of initialQuads) {
         const candidateDetection = optimizeBoardQuad(rgb, gray, selectedSquares, quad, src.cols, src.rows);
