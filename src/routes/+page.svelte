@@ -3,64 +3,89 @@
   import { onMount, onDestroy } from 'svelte';
   import { loadBoardCalibration } from '$lib/board-calibration';
   import LiveBoardVisualizer from '$lib/components/LiveBoardVisualizer.svelte';
+  import {
+    clockTapped,
+    configureFromQuery,
+    connectionStatusChanged,
+    gameStore,
+    layoutModeToggled,
+    logReportPrepared,
+    tickElapsed
+  } from '$lib/game/store';
+  import { exportCurrentGameLogReport } from '$lib/game/log-report';
+  import type { GameState, Player } from '$lib/game/types';
 
-  let timeWhite = $state(60000); 
-  let timeBlack = $state(60000);
-  let increment = $state(0);
-  let activePlayer: 'white' | 'black' | null = $state(null);
-  let gameState: 'idle' | 'running' | 'paused' | 'gameover' = $state('idle');
-  let winner: 'white' | 'black' | null = $state(null);
-  let connectionStatus: 'offline' | 'synced' | 'error' = $state('offline');
-  let cameraUrl = $state('http://chesscam.local');
+  let game = $state<GameState>(gameStore.getState().game);
   let connectionIntervalId: ReturnType<typeof setInterval> | null = null;
-  let settingsHref = $state(`${base}/settings`);
-
-  let layoutMode: 'opposing' | 'edge' = $state('opposing');
-
-  let lastTick = 0;
   let timerId: ReturnType<typeof setInterval> | null = null;
+  let storeUnsubscribe: (() => void) | null = null;
+  let reportStatus = $state<string | null>(null);
 
   let warningAudio: HTMLAudioElement;
   let gameoverAudio: HTMLAudioElement;
 
-  let warningPlayed = $state({ white: false, black: false });
+  const settingsHref = $derived(`${base}/settings?camera_url=${encodeURIComponent(game.cameraUrl)}`);
 
   onMount(() => {
+    let previousState = gameStore.getState().game;
+    game = previousState;
+    syncTimer(previousState);
+
+    storeUnsubscribe = gameStore.subscribe(() => {
+      const nextState = gameStore.getState().game;
+      if (nextState.warningPlayed.white && !previousState.warningPlayed.white) {
+        playWarning();
+      }
+      if (nextState.warningPlayed.black && !previousState.warningPlayed.black) {
+        playWarning();
+      }
+      if (nextState.winner && nextState.winner !== previousState.winner) {
+        playGameOver();
+      }
+      game = nextState;
+      syncTimer(nextState);
+      previousState = nextState;
+    });
+
     const params = new URLSearchParams(window.location.search);
     const savedCalibration = loadBoardCalibration();
+    const configuredCameraUrl = params.get('camera_url')
+      ?? savedCalibration?.cameraUrl
+      ?? gameStore.getState().game.cameraUrl;
     const hasConfiguredCamera = params.has('camera_url')
       || Boolean(savedCalibration?.cameraMode === 'remote' && savedCalibration.cameraUrl);
 
+    const nextConfig: {
+      baseTimeMs?: number;
+      incrementMs?: number;
+      cameraUrl?: string;
+    } = {
+      cameraUrl: configuredCameraUrl
+    };
+
     if (params.has('time')) {
       const t = parseInt(params.get('time')!, 10);
-      timeWhite = t;
-      timeBlack = t;
+      nextConfig.baseTimeMs = t;
     }
     if (params.has('inc')) {
-      increment = parseInt(params.get('inc')!, 10);
+      nextConfig.incrementMs = parseInt(params.get('inc')!, 10);
     }
-    
-    if (params.has('camera_url')) {
-      cameraUrl = params.get('camera_url')!;
-    } else if (savedCalibration?.cameraUrl) {
-      cameraUrl = savedCalibration.cameraUrl;
-    }
-
-    settingsHref = `${base}/settings?camera_url=${encodeURIComponent(cameraUrl)}`;
+    gameStore.dispatch(configureFromQuery(nextConfig));
     
     const checkConnection = async () => {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const cameraUrl = gameStore.getState().game.cameraUrl;
         const res = await fetch(`${cameraUrl}/api/status`, { signal: controller.signal }).catch(() => null);
         clearTimeout(timeoutId);
         if (res && res.ok) {
-          connectionStatus = 'synced';
+          gameStore.dispatch(connectionStatusChanged('synced'));
         } else {
-          connectionStatus = 'offline';
+          gameStore.dispatch(connectionStatusChanged('offline'));
         }
       } catch (err) {
-        connectionStatus = 'offline';
+        gameStore.dispatch(connectionStatusChanged('offline'));
       }
     };
 
@@ -68,7 +93,7 @@
       checkConnection();
       connectionIntervalId = setInterval(checkConnection, 3000);
     } else {
-      connectionStatus = 'offline';
+      gameStore.dispatch(connectionStatusChanged('offline'));
     }
   });
 
@@ -94,92 +119,43 @@
     }
   }
 
-  function tick() {
-    if (gameState !== 'running' || !activePlayer) return;
-
-    const now = Date.now();
-    const delta = now - lastTick;
-    lastTick = now;
-
-    if (activePlayer === 'white') {
-      timeWhite -= delta;
-      if (timeWhite <= 30000 && !warningPlayed.white) {
-        playWarning();
-        warningPlayed.white = true;
+  function syncTimer(nextState: GameState) {
+    if (nextState.gameState === 'running') {
+      if (!timerId) {
+        timerId = setInterval(() => {
+          gameStore.dispatch(tickElapsed({ nowMs: Date.now() }));
+        }, 50);
       }
-      if (timeWhite <= 0) {
-        timeWhite = 0;
-        endGame('black');
-      }
-    } else {
-      timeBlack -= delta;
-      if (timeBlack <= 30000 && !warningPlayed.black) {
-        playWarning();
-        warningPlayed.black = true;
-      }
-      if (timeBlack <= 0) {
-        timeBlack = 0;
-        endGame('white');
-      }
+      return;
     }
-  }
 
-  function startGame() {
-    if (gameState === 'idle') {
-      gameState = 'running';
-      lastTick = Date.now();
-      timerId = setInterval(tick, 50);
-    } else if (gameState === 'paused') {
-      gameState = 'running';
-      lastTick = Date.now();
-      timerId = setInterval(tick, 50);
-    }
-  }
-
-  function endGame(winPlayer: 'white' | 'black') {
-    gameState = 'gameover';
-    winner = winPlayer;
-    activePlayer = null;
     if (timerId) {
       clearInterval(timerId);
       timerId = null;
     }
-    playGameOver();
   }
 
-  function tapClock(player: 'white' | 'black') {
-    if (gameState === 'gameover') return;
+  function tapClock(player: Player) {
+    gameStore.dispatch(clockTapped({ player, nowMs: Date.now() }));
+  }
 
-    if (gameState === 'idle') {
-        startGame();
-        activePlayer = player === 'white' ? 'black' : 'white';
-        return;
-    }
-
-    if (gameState === 'running') {
-      if (activePlayer === player) {
-        const now = Date.now();
-        const delta = now - lastTick;
-        if (player === 'white') {
-          timeWhite -= delta;
-          if (timeWhite > 0) timeWhite += increment;
-        } else {
-          timeBlack -= delta;
-          if (timeBlack > 0) timeBlack += increment;
-        }
-        
-        if (timeWhite <= 0) { timeWhite = 0; endGame('black'); return; }
-        if (timeBlack <= 0) { timeBlack = 0; endGame('white'); return; }
-        
-        activePlayer = player === 'white' ? 'black' : 'white';
-        lastTick = Date.now();
-      }
+  async function createLogReport() {
+    reportStatus = 'Preparing log report';
+    const issueWindow = window.open('', '_blank', 'noopener');
+    try {
+      await exportCurrentGameLogReport(gameStore.getState().game, issueWindow);
+      gameStore.dispatch(logReportPrepared({ preparedAtMs: Date.now() }));
+      reportStatus = 'Log report downloaded and issue draft opened';
+    } catch (error) {
+      issueWindow?.close();
+      reportStatus = error instanceof Error ? error.message : 'Failed to prepare log report';
     }
   }
 
   onDestroy(() => {
     if (timerId) clearInterval(timerId);
     if (connectionIntervalId) clearInterval(connectionIntervalId);
+    storeUnsubscribe?.();
   });
 </script>
 
@@ -190,44 +166,50 @@
 <audio bind:this={warningAudio} src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" preload="auto"></audio>
 <audio bind:this={gameoverAudio} src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" preload="auto"></audio>
 
-<div class="app-container {layoutMode}">
+<div class="app-container {game.layoutMode}">
   <button 
-    class="clock-half black {activePlayer === 'black' ? 'active' : ''} {gameState === 'gameover' && winner !== 'black' ? 'lost' : ''}"
+    class="clock-half black {game.activePlayer === 'black' ? 'active' : ''} {game.gameState === 'gameover' && game.winner !== 'black' ? 'lost' : ''}"
     onclick={() => tapClock('black')}
     data-testid="clock-black"
     aria-live="polite"
   >
-    <div class="time">{formatTime(timeBlack)}</div>
-    {#if activePlayer === 'black'}<div class="indicator">Active</div>{/if}
+    <div class="time">{formatTime(game.timeBlack)}</div>
+    {#if game.activePlayer === 'black'}<div class="indicator">Active</div>{/if}
   </button>
 
   <div class="control-bar">
     <a href={settingsHref} class="btn icon-btn" data-testid="settings-link" aria-label="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
     </a>
-    <button class="btn icon-btn" data-status={connectionStatus} aria-label="Network Status" data-testid="network-status">
-      {#if connectionStatus === 'synced'}
+    <button class="btn icon-btn" data-status={game.connectionStatus} aria-label="Network Status" data-testid="network-status">
+      {#if game.connectionStatus === 'synced'}
         <svg stroke="#4ade80" fill="none" viewBox="0 0 24 24" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
       {:else}
         <svg stroke="#ef4444" fill="none" viewBox="0 0 24 24" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
       {/if}
     </button>
+    <button class="btn log-btn" type="button" onclick={createLogReport} data-testid="log-report">
+      Log report
+    </button>
     <div class="visualizer" data-testid="visualizer">
-      <LiveBoardVisualizer {cameraUrl} setupHref={settingsHref} />
+      <LiveBoardVisualizer cameraUrl={game.cameraUrl} setupHref={settingsHref} />
     </div>
-    <button class="btn icon-btn" onclick={() => layoutMode = layoutMode === 'opposing' ? 'edge' : 'opposing'} data-testid="layout-toggle" aria-label="Toggle Layout">
+    <button class="btn icon-btn" onclick={() => gameStore.dispatch(layoutModeToggled())} data-testid="layout-toggle" aria-label="Toggle Layout">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>
     </button>
   </div>
+  {#if reportStatus}
+    <div class="report-status" data-testid="report-status">{reportStatus}</div>
+  {/if}
 
   <button 
-    class="clock-half white {activePlayer === 'white' ? 'active' : ''} {gameState === 'gameover' && winner !== 'white' ? 'lost' : ''}"
+    class="clock-half white {game.activePlayer === 'white' ? 'active' : ''} {game.gameState === 'gameover' && game.winner !== 'white' ? 'lost' : ''}"
     onclick={() => tapClock('white')}
     data-testid="clock-white"
     aria-live="polite"
   >
-    <div class="time">{formatTime(timeWhite)}</div>
-    {#if activePlayer === 'white'}<div class="indicator">Active</div>{/if}
+    <div class="time">{formatTime(game.timeWhite)}</div>
+    {#if game.activePlayer === 'white'}<div class="indicator">Active</div>{/if}
   </button>
 </div>
 
@@ -351,5 +333,26 @@
   .icon-btn svg {
       width: 32px;
       height: 32px;
+  }
+
+  .report-status {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0.9rem;
+    z-index: 5;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(17, 24, 39, 0.78);
+    color: #d1d5db;
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+  }
+
+  .log-btn {
+    min-width: 4.8rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 </style>
