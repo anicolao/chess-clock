@@ -8,6 +8,11 @@ function toDataUrl(filePath: string) {
     return `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
 }
 
+async function saveDocScreenshot(page: import('@playwright/test').Page, filename: string) {
+    const screenshotPath = path.join(process.cwd(), 'tests/e2e/005-board-setup/screenshots', filename);
+    await page.screenshot({ path: screenshotPath });
+}
+
 test.describe('Board Setup With Mocked Webcam', () => {
     test('Setup screen detects the board from a mocked webcam frame', async ({ page }, testInfo) => {
         const emptyBoardImageUrl = toDataUrl(path.join(process.cwd(), 'tests/images/game/empty.jpg'));
@@ -61,6 +66,7 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await expect(inlineNotice).toContainText(/Live camera ready|Browser camera connected/, { timeout: 20000 });
         await page.waitForTimeout(300);
 
+        await saveDocScreenshot(page, '000-000-stream-ready.png');
         await testInfo.attach('stream-ready', {
             body: await page.screenshot(),
             contentType: 'image/png'
@@ -68,6 +74,7 @@ test.describe('Board Setup With Mocked Webcam', () => {
 
         const defaultQuadPoints = await quadPolygon.getAttribute('points');
         await autoDetectButton.click();
+        await expect(inlineNotice).toContainText(/OpenCV/, { timeout: 5000 });
         await expect(inlineNotice).toContainText('Board detected from', { timeout: 30000 });
         await expect(quadPolygon).not.toHaveAttribute('points', defaultQuadPoints ?? '');
         await expect(page.locator('.preview-card .detail-list strong').first()).not.toHaveText('Manual / saved');
@@ -94,6 +101,7 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await expect(inlineNotice).toContainText('Calibration saved locally.');
 
         await expect(page.locator('.preview-card .detail-list strong').nth(1)).toHaveText('Captured');
+        await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),
             contentType: 'image/png'
