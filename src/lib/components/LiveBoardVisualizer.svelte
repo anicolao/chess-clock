@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { base } from '$app/paths';
 
-	import { loadBoardCalibration } from '$lib/board-calibration';
+	import { type CameraMode, loadBoardCalibration } from '$lib/board-calibration';
 	import { captureImageDataFromElement, loadImageDataFromUrl } from '$lib/vision/browser-images';
 	import { analyzeBoardFrame, WARP_SIZE } from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
@@ -11,22 +12,27 @@
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 
 	let {
-		cameraUrl = DEFAULT_CAMERA_URL
+		cameraUrl = DEFAULT_CAMERA_URL,
+		setupHref = `${base}/settings`
 	}: {
 		cameraUrl?: string;
+		setupHref?: string;
 	} = $props();
 
-	let streamImage: HTMLImageElement | null = null;
-	let snapshotCanvas: HTMLCanvasElement | null = null;
-	let boardCanvas: HTMLCanvasElement | null = null;
+	let streamImage = $state<HTMLImageElement | null>(null);
+	let streamVideo = $state<HTMLVideoElement | null>(null);
+	let snapshotCanvas = $state<HTMLCanvasElement | null>(null);
+	let boardCanvas = $state<HTMLCanvasElement | null>(null);
 
 	let statusLabel = $state('Load board setup');
 	let streamReady = $state(false);
 	let errorMessage = $state<string | null>(null);
 	let streamEnabled = $state(false);
+	let cameraMode = $state<CameraMode>('browser');
 
 	let cvModule = $state<OpenCvModule | null>(null);
 	let referenceImageData: ImageData | null = null;
+	let mediaStream: MediaStream | null = null;
 	let processingIntervalId: ReturnType<typeof setInterval> | null = null;
 	let processing = false;
 	let calibration = $state<ReturnType<typeof loadBoardCalibration>>(loadBoardCalibration());
@@ -34,24 +40,29 @@
 
 	const effectiveCameraUrl = $derived(cameraUrl || calibration?.cameraUrl || DEFAULT_CAMERA_URL);
 	const streamSrc = $derived(
-		streamEnabled ? `${effectiveCameraUrl.replace(/\/$/, '')}/stream` : ''
+		streamEnabled && cameraMode === 'remote'
+			? `${effectiveCameraUrl.replace(/\/$/, '')}/stream`
+			: ''
 	);
 	const canAnalyze = $derived(Boolean(calibration?.normalizedQuad));
+	const setupPrompt = $derived(canAnalyze ? null : 'Tap to set up board');
+	const remoteMixedContentBlocked = $derived(
+		cameraMode === 'remote'
+			&& typeof window !== 'undefined'
+			&& window.location.protocol === 'https:'
+			&& /^http:\/\//i.test(effectiveCameraUrl)
+	);
+
+	$effect(() => {
+		if (cameraMode === 'browser' && streamVideo && mediaStream && streamVideo.srcObject !== mediaStream) {
+			streamVideo.srcObject = mediaStream;
+			void streamVideo.play().catch(() => {});
+		}
+	});
 
 	onMount(async () => {
-		const enableStream = () => {
-			if (calibration?.normalizedQuad) {
-				streamEnabled = true;
-			}
-		};
-
-		if (document.readyState === 'complete') {
-			enableStream();
-		} else {
-			window.addEventListener('load', enableStream, { once: true });
-		}
-
 		calibration = loadBoardCalibration();
+		cameraMode = calibration?.cameraMode ?? 'browser';
 		if (calibration?.referenceImageDataUrl) {
 			try {
 				referenceImageData = await loadImageDataFromUrl(calibration.referenceImageDataUrl);
@@ -61,21 +72,62 @@
 			}
 		}
 
+		if (calibration?.normalizedQuad) {
+			if (cameraMode === 'browser') {
+				void startBrowserCamera();
+			} else {
+				streamEnabled = true;
+			}
+		}
+
 		processingIntervalId = setInterval(() => {
 			void processFrame();
 		}, 850);
 		void processFrame();
-
-		return () => {
-			window.removeEventListener('load', enableStream);
-		};
 	});
 
 	onDestroy(() => {
 		if (processingIntervalId) {
 			clearInterval(processingIntervalId);
 		}
+		stopBrowserCamera();
 	});
+
+	function stopBrowserCamera() {
+		mediaStream?.getTracks().forEach((track) => track.stop());
+		mediaStream = null;
+	}
+
+	async function startBrowserCamera() {
+		stopBrowserCamera();
+		streamEnabled = true;
+		streamReady = false;
+		errorMessage = null;
+
+		if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+			errorMessage = 'Browser camera requires a secure context.';
+			statusLabel = 'Camera unavailable';
+			return;
+		}
+
+		try {
+			mediaStream = await navigator.mediaDevices.getUserMedia({
+				video: {
+					facingMode: { ideal: 'environment' },
+					width: { ideal: 1280 },
+					height: { ideal: 720 }
+				},
+				audio: false
+			});
+			if (streamVideo) {
+				streamVideo.srcObject = mediaStream;
+				await streamVideo.play().catch(() => {});
+			}
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : 'Failed to open the browser camera.';
+			statusLabel = 'Camera unavailable';
+		}
+	}
 
 	function drawOverlay(context: CanvasRenderingContext2D, occupiedIndices: number[]) {
 		const boardSize = context.canvas.width;
@@ -126,15 +178,17 @@
 	}
 
 	async function processFrame() {
-		if (processing || !boardCanvas || !snapshotCanvas || !streamImage || !streamReady) {
+		const source = cameraMode === 'browser' ? streamVideo : streamImage;
+		if (processing || !boardCanvas || !snapshotCanvas || !source || !streamReady) {
 			return;
 		}
 
 		calibration = loadBoardCalibration();
 		if (!calibration) {
-			statusLabel = 'Open settings';
+			statusLabel = 'Set up board';
 			return;
 		}
+		cameraMode = calibration.cameraMode;
 
 		if (calibration.referenceImageDataUrl !== loadedReferenceUrl) {
 			referenceImageData = calibration.referenceImageDataUrl
@@ -152,7 +206,7 @@
 				return;
 			}
 
-			const frame = captureImageDataFromElement(streamImage, snapshotCanvas);
+			const frame = captureImageDataFromElement(source, snapshotCanvas);
 			const analysis = analyzeBoardFrame(
 				activeCv,
 				frame,
@@ -177,7 +231,9 @@
 
 			errorMessage = null;
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Live board analysis failed.';
+			errorMessage = remoteMixedContentBlocked
+				? 'Use device webcam in setup on the secure preview link.'
+				: (error instanceof Error ? error.message : 'Live board analysis failed.');
 			statusLabel = 'Camera unavailable';
 		} finally {
 			processing = false;
@@ -186,31 +242,49 @@
 </script>
 
 <div class="live-board">
-	<img
-		bind:this={streamImage}
-		class="stream-source"
-		src={streamSrc}
-		alt=""
-		crossorigin="anonymous"
-		aria-hidden="true"
-		onload={() => {
-			streamReady = true;
-			errorMessage = null;
-			void processFrame();
-		}}
-		onerror={() => {
-			streamReady = false;
-			statusLabel = 'Camera unavailable';
-			errorMessage = 'The live camera stream could not be loaded.';
-		}}
-	/>
+	{#if cameraMode === 'browser'}
+		<video
+			bind:this={streamVideo}
+			class="stream-source"
+			autoplay
+			muted
+			playsinline
+			aria-hidden="true"
+			onloadeddata={() => {
+				streamReady = true;
+				errorMessage = null;
+				void processFrame();
+			}}
+		></video>
+	{:else}
+		<img
+			bind:this={streamImage}
+			class="stream-source"
+			src={streamSrc}
+			alt=""
+			crossorigin="anonymous"
+			aria-hidden="true"
+			onload={() => {
+				streamReady = true;
+				errorMessage = null;
+				void processFrame();
+			}}
+			onerror={() => {
+				streamReady = false;
+				statusLabel = 'Camera unavailable';
+				errorMessage = remoteMixedContentBlocked
+					? 'Use device webcam in setup on the secure preview link.'
+					: 'The live camera stream could not be loaded.';
+			}}
+		/>
+	{/if}
 
 	<canvas bind:this={boardCanvas} class="board-canvas" width={WARP_SIZE} height={WARP_SIZE}></canvas>
 
-	{#if !canAnalyze}
-		<div class="overlay-message">Calibrate board</div>
+	{#if setupPrompt}
+		<a class="overlay-message action" href={setupHref}>{setupPrompt}</a>
 	{:else if errorMessage}
-		<div class="overlay-message error">{errorMessage}</div>
+		<a class="overlay-message error action" href={setupHref}>{errorMessage}</a>
 	{/if}
 
 	<div class="overlay-label">{statusLabel}</div>
@@ -263,6 +337,10 @@
 
 	.overlay-message.error {
 		color: #fecaca;
+	}
+
+	.overlay-message.action {
+		text-decoration: none;
 	}
 
 	.overlay-label {

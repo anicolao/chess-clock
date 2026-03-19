@@ -1,8 +1,10 @@
 import { browser } from '$app/environment';
 
 export type NormalizedPoint = { x: number; y: number };
+export type CameraMode = 'browser' | 'remote';
 
 export type BoardCalibration = {
+	cameraMode: CameraMode;
 	cameraUrl: string;
 	normalizedQuad: [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint];
 	referenceImageDataUrl: string | null;
@@ -30,11 +32,13 @@ function isValidPoint(value: unknown): value is NormalizedPoint {
 function isValidCalibration(value: unknown): value is BoardCalibration {
 	return !!value
 		&& typeof value === 'object'
+		&& (((value as BoardCalibration).cameraMode === 'browser')
+			|| (value as BoardCalibration).cameraMode === 'remote')
 		&& typeof (value as BoardCalibration).cameraUrl === 'string'
 		&& Array.isArray((value as BoardCalibration).normalizedQuad)
 		&& (value as BoardCalibration).normalizedQuad.length === 4
 		&& (value as BoardCalibration).normalizedQuad.every(isValidPoint)
-		&& (((value as BoardCalibration).referenceImageDataUrl === null)
+		&& ((((value as { referenceImageDataUrl?: unknown }).referenceImageDataUrl) === null)
 			|| typeof (value as BoardCalibration).referenceImageDataUrl === 'string')
 		&& typeof (value as BoardCalibration).updatedAt === 'number';
 }
@@ -46,8 +50,15 @@ export function loadBoardCalibration(): BoardCalibration | null {
 	if (!raw) return null;
 
 	try {
-		const parsed = JSON.parse(raw);
-		return isValidCalibration(parsed) ? parsed : null;
+		const parsed = JSON.parse(raw) as Partial<BoardCalibration>;
+		const normalized = {
+			cameraMode: parsed.cameraMode === 'remote' ? 'remote' : 'browser',
+			cameraUrl: typeof parsed.cameraUrl === 'string' ? parsed.cameraUrl : 'http://chesscam.local',
+			normalizedQuad: parsed.normalizedQuad,
+			referenceImageDataUrl: parsed.referenceImageDataUrl ?? null,
+			updatedAt: parsed.updatedAt
+		};
+		return isValidCalibration(normalized) ? normalized : null;
 	} catch {
 		return null;
 	}

@@ -1,9 +1,15 @@
+type FrameElement = HTMLImageElement | HTMLVideoElement;
+
 export function captureImageDataFromElement(
-	image: HTMLImageElement,
+	source: FrameElement,
 	canvas: HTMLCanvasElement
 ) {
-	const width = image.naturalWidth || image.width;
-	const height = image.naturalHeight || image.height;
+	const width = source instanceof HTMLVideoElement
+		? (source.videoWidth || source.clientWidth)
+		: (source.naturalWidth || source.width);
+	const height = source instanceof HTMLVideoElement
+		? (source.videoHeight || source.clientHeight)
+		: (source.naturalHeight || source.height);
 
 	if (!width || !height) {
 		throw new Error('Camera frame is not ready yet.');
@@ -17,17 +23,17 @@ export function captureImageDataFromElement(
 		throw new Error('2D canvas is unavailable.');
 	}
 
-	context.drawImage(image, 0, 0, width, height);
+	context.drawImage(source, 0, 0, width, height);
 	return context.getImageData(0, 0, width, height);
 }
 
 export function imageDataToDataUrl(
-	image: HTMLImageElement,
+	source: FrameElement,
 	canvas: HTMLCanvasElement,
 	type = 'image/jpeg',
 	quality = 0.92
 ) {
-	captureImageDataFromElement(image, canvas);
+	captureImageDataFromElement(source, canvas);
 	return canvas.toDataURL(type, quality);
 }
 
