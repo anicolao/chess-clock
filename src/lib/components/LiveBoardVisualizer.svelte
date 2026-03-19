@@ -10,6 +10,7 @@
 	type OpenCvModule = typeof import('@techstark/opencv-js');
 
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
+	const CAMERA_STAGE_ASPECT_RATIO = 4 / 3;
 	const LIVE_ANALYSIS_INTERVAL_MS = 650;
 	const LIVE_CAPTURE_MAX_DIMENSION = 640;
 
@@ -246,7 +247,8 @@
 			}
 
 			const frame = captureImageDataFromElement(source, snapshotCanvas, {
-				maxDimension: LIVE_CAPTURE_MAX_DIMENSION
+				maxDimension: LIVE_CAPTURE_MAX_DIMENSION,
+				coverAspectRatio: CAMERA_STAGE_ASPECT_RATIO
 			});
 			const analysis = analyzeBoardFrame(
 				activeCv,
