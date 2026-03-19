@@ -1,0 +1,5 @@
+menu "Camera HAL Configuration"
+    config USE_MOCK_CAMERA
+        bool "Use mock camera implementation"
+        default y
+endmenu

@@ -1,1 +1,1 @@
-npm run test:e2e
+nix develop -c npm run test:e2e
