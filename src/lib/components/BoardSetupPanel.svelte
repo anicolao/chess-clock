@@ -17,6 +17,7 @@
 		boardLooksEmpty,
 		localizeChessboardFromImageData,
 		normalizeQuad,
+		type OccupiedPiece,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
@@ -62,6 +63,7 @@
 	let savedAt = $state<number | null>(null);
 	let previewOccupiedCount = $state<number | null>(null);
 	let previewOccupiedIndices = $state<number[]>([]);
+	let previewOccupiedPieces = $state<OccupiedPiece[]>([]);
 	let previewOccupancyScores = $state<number[]>([]);
 	let previewReferenceScores = $state<number[]>([]);
 	let dragHandleIndex = $state<number | null>(null);
@@ -520,6 +522,7 @@
 			});
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
 			previewOccupiedIndices = [];
+			previewOccupiedPieces = [];
 			previewOccupancyScores = [];
 			previewReferenceScores = [];
 			previewOccupiedCount = 0;
@@ -563,6 +566,11 @@
 		normalizedQuad = createDefaultQuad();
 		referenceImageDataUrl = null;
 		referenceImageData = null;
+		previewOccupiedIndices = [];
+		previewOccupiedPieces = [];
+		previewOccupancyScores = [];
+		previewReferenceScores = [];
+		previewOccupiedCount = null;
 		occupancyThreshold = DEFAULT_OCCUPANCY_THRESHOLD;
 		detectedBoardScore = null;
 		savedAt = null;
@@ -571,7 +579,7 @@
 		errorMessage = null;
 	}
 
-	function drawOccupancyOverlay(context: CanvasRenderingContext2D, occupiedIndices: number[]) {
+	function drawOccupancyOverlay(context: CanvasRenderingContext2D, occupiedPieces: OccupiedPiece[]) {
 		const boardSize = context.canvas.width;
 		const cellSize = boardSize / 8;
 
@@ -590,18 +598,21 @@
 			context.stroke();
 		}
 
-		for (const occupiedIndex of occupiedIndices) {
+		for (const occupiedPiece of occupiedPieces) {
+			const occupiedIndex = occupiedPiece.index;
 			const row = Math.floor(occupiedIndex / 8);
 			const col = occupiedIndex % 8;
 			const x = (col + 0.5) * cellSize;
 			const y = (row + 0.5) * cellSize;
 
-			context.fillStyle = '#ff6b57';
+			context.fillStyle = occupiedPiece.color === 'white' ? '#f6efdc' : '#3a3935';
 			context.beginPath();
 			context.arc(x, y, Math.max(4, boardSize * 0.035), 0, Math.PI * 2);
 			context.fill();
 
-			context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+			context.strokeStyle = occupiedPiece.color === 'white'
+				? 'rgba(45, 35, 22, 0.85)'
+				: 'rgba(255, 255, 255, 0.85)';
 			context.lineWidth = 1.5;
 			context.stroke();
 		}
@@ -618,6 +629,7 @@
 		if (!referenceImageDataUrl) {
 			previewOccupiedCount = null;
 			previewOccupiedIndices = [];
+			previewOccupiedPieces = [];
 			previewOccupancyScores = [];
 			previewReferenceScores = [];
 			context.fillStyle = '#0f172a';
@@ -648,12 +660,18 @@
 			: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
 				? []
 				: analysis.occupiedIndices;
+		const resolvedOccupiedPieces = !referenceImageData
+			? []
+			: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
+				? []
+				: analysis.occupiedPieces;
 		previewCanvas.width = WARP_SIZE;
 		previewCanvas.height = WARP_SIZE;
 		context.putImageData(analysis.boardImageData, 0, 0);
-		drawOccupancyOverlay(context, resolvedOccupiedIndices);
+		drawOccupancyOverlay(context, resolvedOccupiedPieces);
 		previewOccupiedCount = resolvedOccupiedIndices.length;
 		previewOccupiedIndices = [...resolvedOccupiedIndices].sort((a, b) => a - b);
+		previewOccupiedPieces = [...resolvedOccupiedPieces].sort((a, b) => a.index - b.index);
 		previewOccupancyScores = [...analysis.scores];
 		previewReferenceScores = [...analysis.referenceScores];
 	}
@@ -854,6 +872,7 @@
 				width={WARP_SIZE}
 				height={WARP_SIZE}
 				data-occupied-indices={previewOccupiedIndices.join(',')}
+				data-piece-colors={previewOccupiedPieces.map((piece) => `${piece.index}:${piece.color}`).join(',')}
 				data-occupancy-scores={previewOccupancyScores.map((score) => score.toFixed(2)).join(',')}
 				data-reference-scores={previewReferenceScores.map((score) => score.toFixed(2)).join(',')}
 			></canvas>

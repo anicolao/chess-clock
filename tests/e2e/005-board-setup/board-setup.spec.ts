@@ -28,6 +28,27 @@ async function readPreviewOccupiedIndices(page: import('@playwright/test').Page)
     });
 }
 
+async function readPreviewPieceColors(page: import('@playwright/test').Page) {
+    return page.locator('canvas.preview-canvas').evaluate((node) => {
+        const raw = node.getAttribute('data-piece-colors');
+        if (!raw) {
+            return [] as Array<{ index: number; color: 'white' | 'black' }>;
+        }
+
+        return raw
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .map((value) => {
+                const [index, color] = value.split(':');
+                return {
+                    index: Number.parseInt(index, 10),
+                    color: color === 'white' ? 'white' : 'black'
+                };
+            });
+    });
+}
+
 test.describe('Board Setup With Mocked Webcam', () => {
     test('Setup screen detects the board from a mocked webcam frame', async ({ page }, testInfo) => {
         test.setTimeout(120000);
@@ -189,11 +210,45 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await expect
             .poll(() => readPreviewOccupiedIndices(page), { timeout: 20000 })
             .toHaveLength(31);
+        await expect
+            .poll(() => readPreviewPieceColors(page), { timeout: 20000 })
+            .toHaveLength(31);
         await saveDocScreenshot(page, '001-001-quad-adjusted-and-saved.png');
         await testInfo.attach('opencv-detected-and-saved', {
             body: await page.screenshot(),
             contentType: 'image/png'
         });
+
+        const pieceColors = await readPreviewPieceColors(page);
+        const whitePieceCount = pieceColors.filter((piece) => piece.color === 'white').length;
+        const blackPieceCount = pieceColors.filter((piece) => piece.color === 'black').length;
+        expect(whitePieceCount).toBeGreaterThanOrEqual(10);
+        expect(blackPieceCount).toBeGreaterThanOrEqual(10);
+        expect(Math.abs(whitePieceCount - blackPieceCount)).toBeLessThanOrEqual(11);
+
+        const rowCounts = Array.from({ length: 8 }, () => ({ white: 0, black: 0 }));
+        const colCounts = Array.from({ length: 8 }, () => ({ white: 0, black: 0 }));
+        for (const piece of pieceColors) {
+            const row = Math.floor(piece.index / 8);
+            const col = piece.index % 8;
+            rowCounts[row][piece.color] += 1;
+            colCounts[col][piece.color] += 1;
+        }
+
+        const hasColoredEdgeBands = (bands: Array<{ white: number; black: number }>) => {
+            const leadingWhite = bands[0].white + bands[1].white;
+            const leadingBlack = bands[0].black + bands[1].black;
+            const trailingWhite = bands[6].white + bands[7].white;
+            const trailingBlack = bands[6].black + bands[7].black;
+            const middleOccupancy = bands.slice(2, 6).reduce((sum, band) => sum + band.white + band.black, 0);
+
+            return middleOccupancy === 0 && (
+                (leadingWhite >= 15 && trailingBlack >= 15 && leadingBlack === 0 && trailingWhite === 0)
+                || (leadingBlack >= 15 && trailingWhite >= 15 && leadingWhite === 0 && trailingBlack === 0)
+            );
+        };
+
+        expect(hasColoredEdgeBands(rowCounts) || hasColoredEdgeBands(colCounts)).toBe(true);
 
         await page.evaluate((nextImageUrl) => {
             return (window as typeof window & {

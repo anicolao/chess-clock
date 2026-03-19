@@ -11,6 +11,7 @@
 	import {
 		analyzeBoardFrame,
 		boardLooksEmpty,
+		type OccupiedPiece,
 		WARP_SIZE
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
@@ -159,7 +160,7 @@
 		}
 	}
 
-	function drawOverlay(context: CanvasRenderingContext2D, occupiedIndices: number[]) {
+	function drawOverlay(context: CanvasRenderingContext2D, occupiedPieces: OccupiedPiece[]) {
 		const boardSize = context.canvas.width;
 		const cellSize = boardSize / 8;
 
@@ -178,18 +179,21 @@
 			context.stroke();
 		}
 
-		for (const occupiedIndex of occupiedIndices) {
+		for (const occupiedPiece of occupiedPieces) {
+			const occupiedIndex = occupiedPiece.index;
 			const row = Math.floor(occupiedIndex / 8);
 			const col = occupiedIndex % 8;
 			const x = (col + 0.5) * cellSize;
 			const y = (row + 0.5) * cellSize;
 
-			context.fillStyle = '#ff6947';
+			context.fillStyle = occupiedPiece.color === 'white' ? '#f6efdc' : '#3a3935';
 			context.beginPath();
 			context.arc(x, y, Math.max(3.5, boardSize * 0.036), 0, Math.PI * 2);
 			context.fill();
 
-			context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+			context.strokeStyle = occupiedPiece.color === 'white'
+				? 'rgba(45, 35, 22, 0.85)'
+				: 'rgba(255, 255, 255, 0.85)';
 			context.lineWidth = 1.3;
 			context.stroke();
 		}
@@ -270,6 +274,11 @@
 				: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
 					? []
 					: analysis.occupiedIndices;
+			const resolvedOccupiedPieces = !referenceImageData
+				? []
+				: analysis.referenceScores.length > 0 && boardLooksEmpty(analysis.referenceScores)
+					? []
+					: analysis.occupiedPieces;
 			const context = boardCanvas.getContext('2d');
 			if (!context) {
 				throw new Error('2D canvas is unavailable.');
@@ -280,7 +289,7 @@
 			context.putImageData(analysis.boardImageData, 0, 0);
 
 			if (referenceImageData) {
-				drawOverlay(context, resolvedOccupiedIndices);
+				drawOverlay(context, resolvedOccupiedPieces);
 				statusLabel = `${resolvedOccupiedIndices.length} occupied`;
 			} else {
 				statusLabel = 'Capture empty board';

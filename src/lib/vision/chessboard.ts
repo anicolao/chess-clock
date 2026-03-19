@@ -7,6 +7,8 @@ import {
 export const WARP_SIZE = 320;
 
 export type ImagePoint = { x: number; y: number };
+export type OccupiedPieceColor = 'white' | 'black';
+export type OccupiedPiece = { index: number; color: OccupiedPieceColor };
 type OpenCvModule = typeof import('@techstark/opencv-js');
 
 function clamp(value: number, min: number, max: number) {
@@ -355,6 +357,25 @@ function sampleRgbMean(
 
 function rgbDistance(a: number[], b: number[]) {
 	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function rgbLuminance(rgb: number[]) {
+	return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+}
+
+function sampleCellRgbMean(
+	rgb: InstanceType<OpenCvModule['Mat']>,
+	row: number,
+	col: number,
+	insetFactor = 0.28
+) {
+	const cellSize = rgb.cols / 8;
+	const inset = cellSize * insetFactor;
+	const x0 = Math.floor(col * cellSize + inset);
+	const x1 = Math.floor((col + 1) * cellSize - inset);
+	const y0 = Math.floor(row * cellSize + inset);
+	const y1 = Math.floor((row + 1) * cellSize - inset);
+	return sampleRgbMean(rgb, x0, y0, x1, y1);
 }
 
 function lineStrength(
@@ -1697,6 +1718,46 @@ export function classifyOccupiedIndicesFromReference(
 		.map(({ index }) => index);
 }
 
+export function classifyOccupiedPieceColorsFromReference(
+	referenceCoreLuminance: number[],
+	currentCoreLuminance: number[],
+	occupiedIndices: number[]
+): OccupiedPiece[] {
+	const parityMeans = [[], []] as number[][];
+
+	for (let index = 0; index < referenceCoreLuminance.length; index++) {
+		const row = Math.floor(index / 8);
+		const col = index % 8;
+		parityMeans[(row + col) % 2].push(referenceCoreLuminance[index] ?? 0);
+	}
+
+	const parityAverageA = mean(parityMeans[0]);
+	const parityAverageB = mean(parityMeans[1]);
+	const darkSquareLuminance = Math.min(parityAverageA, parityAverageB);
+	const lightSquareLuminance = Math.max(parityAverageA, parityAverageB);
+	const pieceToneThreshold = (darkSquareLuminance + lightSquareLuminance) / 2;
+	const neutralMargin = Math.max(6, (lightSquareLuminance - darkSquareLuminance) * 0.12);
+
+	return occupiedIndices.map((index) => {
+		const currentLuminance = currentCoreLuminance[index] ?? 0;
+		const referenceLuminance = referenceCoreLuminance[index] ?? 0;
+		const luminanceDelta = currentLuminance - referenceLuminance;
+
+		let color: OccupiedPieceColor;
+		if (currentLuminance >= pieceToneThreshold + neutralMargin) {
+			color = 'white';
+		} else if (currentLuminance <= pieceToneThreshold - neutralMargin) {
+			color = 'black';
+		} else if (luminanceDelta >= 0) {
+			color = 'white';
+		} else {
+			color = 'black';
+		}
+
+		return { index, color };
+	});
+}
+
 export function boardLooksEmpty(referenceScores: number[]) {
 	if (referenceScores.length === 0) return true;
 	const average = mean(referenceScores);
@@ -1719,6 +1780,7 @@ export function analyzeBoardFrame(
 	const warpedBoard = warpQuad(cv, frameMat, quad, WARP_SIZE);
 	const warpedGray = warpQuad(cv, frameGray, quad, WARP_SIZE);
 
+	let referenceWarp: InstanceType<OpenCvModule['Mat']> | null = null;
 	let referenceWarpGray: InstanceType<OpenCvModule['Mat']> | null = null;
 	if (referenceImageData) {
 		const referenceMat = matFromImageData(cv, referenceImageData);
@@ -1729,6 +1791,7 @@ export function analyzeBoardFrame(
 			referenceImageData.width,
 			referenceImageData.height
 		);
+		referenceWarp = warpQuad(cv, referenceMat, referenceQuad, WARP_SIZE);
 		referenceWarpGray = warpQuad(cv, referenceGray, referenceQuad, WARP_SIZE);
 		referenceMat.delete();
 		referenceGray.delete();
@@ -1736,11 +1799,17 @@ export function analyzeBoardFrame(
 
 	const scores: number[] = [];
 	const referenceScores: number[] = [];
+	const currentCoreLuminance: number[] = [];
+	const referenceCoreLuminance: number[] = [];
 	for (let row = 0; row < 8; row++) {
 		for (let col = 0; col < 8; col++) {
 			scores.push(scoreTextureOccupancyCell(warpedGray, row, col));
+			currentCoreLuminance.push(rgbLuminance(sampleCellRgbMean(warpedBoard, row, col)));
 			if (referenceWarpGray) {
 				referenceScores.push(scoreOccupancyCell(warpedGray, referenceWarpGray, row, col));
+				if (referenceWarp) {
+					referenceCoreLuminance.push(rgbLuminance(sampleCellRgbMean(referenceWarp, row, col)));
+				}
 			}
 		}
 	}
@@ -1752,17 +1821,26 @@ export function analyzeBoardFrame(
 				: classifyOccupiedIndicesFromReference(referenceScores, scores, occupancyThreshold)
 		)
 		: inferOccupiedIndices(scores);
+	const occupiedPieces = referenceWarp
+		? classifyOccupiedPieceColorsFromReference(
+			referenceCoreLuminance,
+			currentCoreLuminance,
+			occupiedIndices
+		)
+		: occupiedIndices.map((index) => ({ index, color: 'black' as const }));
 	const boardImageData = imageDataFromMat(warpedBoard);
 
 	frameMat.delete();
 	frameGray.delete();
 	warpedBoard.delete();
 	warpedGray.delete();
+	referenceWarp?.delete();
 	referenceWarpGray?.delete();
 
 	return {
 		boardImageData,
 		occupiedIndices,
+		occupiedPieces,
 		scores,
 		referenceScores
 	};
