@@ -21,7 +21,8 @@
 
 	type OpenCvModule = typeof import('@techstark/opencv-js');
 
-	const HANDLE_RADIUS = 0.024;
+	const HANDLE_RADIUS = 0.034;
+	const HANDLE_GRAB_RADIUS = 0.14;
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const BROWSER_CAMERA_NOTICE = 'Browser camera works from secure preview links. Remote http camera URLs will be blocked on https.';
 
@@ -134,8 +135,9 @@
 	}
 
 	function updateHandlePosition(index: number, clientX: number, clientY: number) {
-		if (!streamImage) return;
-		const rect = streamImage.getBoundingClientRect();
+		const source = cameraMode === 'browser' ? streamVideo : streamImage;
+		if (!source) return;
+		const rect = source.getBoundingClientRect();
 		if (!rect.width || !rect.height) return;
 
 		const nextX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
@@ -148,11 +150,48 @@
 		void refreshPreview();
 	}
 
+	function findNearestHandleIndex(clientX: number, clientY: number) {
+		const source = cameraMode === 'browser' ? streamVideo : streamImage;
+		if (!source) return null;
+
+		const rect = source.getBoundingClientRect();
+		if (!rect.width || !rect.height) return null;
+
+		const normalizedX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+		const normalizedY = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+
+		let nearestIndex: number | null = null;
+		let nearestDistance = Number.POSITIVE_INFINITY;
+
+		for (const [index, point] of normalizedQuad.entries()) {
+			const distance = Math.hypot(point.x - normalizedX, point.y - normalizedY);
+			if (distance < nearestDistance) {
+				nearestDistance = distance;
+				nearestIndex = index;
+			}
+		}
+
+		return nearestDistance <= HANDLE_GRAB_RADIUS ? nearestIndex : null;
+	}
+
 	function beginDrag(index: number, event: PointerEvent) {
 		dragHandleIndex = index;
 		event.preventDefault();
+		event.stopPropagation();
 		(event.currentTarget as SVGCircleElement | null)?.setPointerCapture(event.pointerId);
 		updateHandlePosition(index, event.clientX, event.clientY);
+	}
+
+	function beginOverlayDrag(event: PointerEvent) {
+		if (dragHandleIndex !== null) return;
+
+		const nearestHandleIndex = findNearestHandleIndex(event.clientX, event.clientY);
+		if (nearestHandleIndex === null) return;
+
+		dragHandleIndex = nearestHandleIndex;
+		event.preventDefault();
+		(event.currentTarget as SVGSVGElement | null)?.setPointerCapture?.(event.pointerId);
+		updateHandlePosition(nearestHandleIndex, event.clientX, event.clientY);
 	}
 
 	function continueDrag(event: PointerEvent) {
@@ -202,8 +241,10 @@
 	async function startBrowserCamera() {
 		stopBrowserCamera();
 		streamEnabled = true;
+		busyLabel = 'Opening camera';
 		errorMessage = null;
 		cameraFrameReady = false;
+		statusMessage = 'Requesting access to the device camera.';
 
 		if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
 			errorMessage = 'Browser camera requires a secure context with camera permissions.';
@@ -224,9 +265,12 @@
 				streamVideo.srcObject = mediaStream;
 				await streamVideo.play().catch(() => {});
 			}
-			statusMessage = 'Browser camera connected. Adjust the quad and capture an empty board.';
+			statusMessage = 'Browser camera connected. Drag a corner handle or run auto-detect.';
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to open the browser camera.';
+			statusMessage = 'Camera permission or access failed.';
+		} finally {
+			busyLabel = null;
 		}
 	}
 
@@ -237,30 +281,40 @@
 		if (isRemoteMixedContentBlocked) {
 			errorMessage = BROWSER_CAMERA_NOTICE;
 		}
+		statusMessage = isRemoteMixedContentBlocked
+			? BROWSER_CAMERA_NOTICE
+			: 'Connecting to the remote camera stream.';
 	}
 
 	async function ensureCvModule() {
 		if (cvModule) return cvModule;
 
 		try {
+			busyLabel = 'Loading vision';
+			statusMessage = 'Loading OpenCV so the board can be analyzed.';
 			cvModule = await loadOpenCv();
+			statusMessage = 'Vision ready. You can auto-detect the board or drag the corners manually.';
 			return cvModule;
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to load OpenCV.';
 			return null;
+		} finally {
+			if (busyLabel === 'Loading vision') {
+				busyLabel = null;
+			}
 		}
 	}
 
 	async function autodetectBoard() {
-		const activeCv = await ensureCvModule();
-		if (!activeCv) {
-			return;
-		}
-
 		busyLabel = 'Detecting board';
 		errorMessage = null;
+		statusMessage = 'Scanning the current frame for an 8x8 chessboard.';
 
 		try {
+			const activeCv = await ensureCvModule();
+			if (!activeCv) {
+				return;
+			}
 			const frame = captureFrame();
 			const detection = localizeChessboardFromImageData(activeCv, frame);
 			if (!detection) {
@@ -281,13 +335,15 @@
 	async function captureReference() {
 		busyLabel = 'Capturing empty board';
 		errorMessage = null;
+		statusMessage = 'Capturing the empty-board reference for occupancy tracking.';
 
 		try {
-			if (!streamImage || !snapshotCanvas) {
+			const source = cameraMode === 'browser' ? streamVideo : streamImage;
+			if (!source || !snapshotCanvas) {
 				throw new Error('Live camera frame is unavailable.');
 			}
 
-			referenceImageDataUrl = imageDataToDataUrl(streamImage, snapshotCanvas);
+			referenceImageDataUrl = imageDataToDataUrl(source, snapshotCanvas);
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
 			statusMessage = 'Empty-board reference captured. Save calibration to use it from the clock.';
 			await refreshPreview();
@@ -371,7 +427,7 @@
 	}
 
 	async function refreshPreview() {
-		if (previewPending || !previewCanvas || !streamImage || !cameraFrameReady) {
+		if (previewPending || !previewCanvas || !cameraFrameReady) {
 			return;
 		}
 
@@ -482,6 +538,7 @@
 						playsinline
 						onloadeddata={() => {
 							cameraFrameReady = true;
+							statusMessage = 'Live camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
 							void refreshPreview();
 						}}
@@ -495,6 +552,7 @@
 						crossorigin="anonymous"
 						onload={() => {
 							cameraFrameReady = true;
+							statusMessage = 'Remote camera ready. Drag the corner handles or run auto-detect.';
 							errorMessage = null;
 							void refreshPreview();
 						}}
@@ -512,6 +570,7 @@
 						class="quad-overlay"
 						viewBox="0 0 1 1"
 						preserveAspectRatio="none"
+						onpointerdown={beginOverlayDrag}
 						onpointermove={continueDrag}
 						onpointerup={endDrag}
 						onpointercancel={endDrag}
@@ -557,6 +616,10 @@
 					</svg>
 				{/if}
 			</div>
+
+			<p class="stream-help">
+				Drag a corner dot, or touch near a corner to move it. Auto-detect will try to snap the quad to the board.
+			</p>
 
 			<div class="card-actions">
 				<button class="action-btn primary" type="button" onclick={autodetectBoard} disabled={!cameraFrameReady || !!busyLabel}>
@@ -760,14 +823,23 @@
 
 	.stream-image {
 		background: rgba(15, 23, 42, 0.9);
+		pointer-events: none;
 	}
 
 	.quad-overlay {
 		touch-action: none;
+		pointer-events: auto;
 	}
 
 	.handle {
 		cursor: grab;
+		filter: drop-shadow(0 0 8px rgba(15, 23, 42, 0.85));
+	}
+
+	.stream-help {
+		margin: 0.8rem 0 0;
+		color: #cbd5e1;
+		font-size: 0.92rem;
 	}
 
 	.card-actions {
