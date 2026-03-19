@@ -76,6 +76,12 @@ test.describe('Board Setup With Mocked Webcam', () => {
         await autoDetectButton.click();
         await expect(inlineNotice).toContainText(/OpenCV/, { timeout: 5000 });
         await expect(inlineNotice).toContainText('Board detected from', { timeout: 30000 });
+        const detectionNotice = await inlineNotice.textContent();
+        const clusteredSquaresMatch = detectionNotice?.match(/Board detected from OpenCV contours \((\d+) clustered squares from (\d+) candidates\)\./);
+        if (!clusteredSquaresMatch) {
+            throw new Error(`Unexpected detection status: ${detectionNotice}`);
+        }
+        expect(Number.parseInt(clusteredSquaresMatch[1], 10)).toBeGreaterThanOrEqual(30);
         await expect(quadPolygon).not.toHaveAttribute('points', defaultQuadPoints ?? '');
         await expect(page.locator('.preview-card .detail-list strong').first()).not.toHaveText('Manual / saved');
 

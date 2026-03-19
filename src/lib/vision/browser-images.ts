@@ -2,7 +2,51 @@ type FrameElement = HTMLImageElement | HTMLVideoElement;
 
 type CaptureOptions = {
 	maxDimension?: number;
+	coverAspectRatio?: number;
 };
+
+function getCoverCrop(
+	sourceWidth: number,
+	sourceHeight: number,
+	coverAspectRatio?: number
+) {
+	if (!coverAspectRatio || coverAspectRatio <= 0 || !sourceWidth || !sourceHeight) {
+		return {
+			x: 0,
+			y: 0,
+			width: sourceWidth,
+			height: sourceHeight
+		};
+	}
+
+	const sourceAspectRatio = sourceWidth / sourceHeight;
+	if (Math.abs(sourceAspectRatio - coverAspectRatio) < 1e-3) {
+		return {
+			x: 0,
+			y: 0,
+			width: sourceWidth,
+			height: sourceHeight
+		};
+	}
+
+	if (sourceAspectRatio > coverAspectRatio) {
+		const cropWidth = sourceHeight * coverAspectRatio;
+		return {
+			x: (sourceWidth - cropWidth) / 2,
+			y: 0,
+			width: cropWidth,
+			height: sourceHeight
+		};
+	}
+
+	const cropHeight = sourceWidth / coverAspectRatio;
+	return {
+		x: 0,
+		y: (sourceHeight - cropHeight) / 2,
+		width: sourceWidth,
+		height: cropHeight
+	};
+}
 
 function scaleToMaxDimension(width: number, height: number, maxDimension?: number) {
 	if (!maxDimension || maxDimension <= 0) {
@@ -37,7 +81,8 @@ export function captureImageDataFromElement(
 		throw new Error('Camera frame is not ready yet.');
 	}
 
-	const { width, height } = scaleToMaxDimension(sourceWidth, sourceHeight, options.maxDimension);
+	const crop = getCoverCrop(sourceWidth, sourceHeight, options.coverAspectRatio);
+	const { width, height } = scaleToMaxDimension(crop.width, crop.height, options.maxDimension);
 	canvas.width = width;
 	canvas.height = height;
 
@@ -46,7 +91,17 @@ export function captureImageDataFromElement(
 		throw new Error('2D canvas is unavailable.');
 	}
 
-	context.drawImage(source, 0, 0, width, height);
+	context.drawImage(
+		source,
+		crop.x,
+		crop.y,
+		crop.width,
+		crop.height,
+		0,
+		0,
+		width,
+		height
+	);
 	return context.getImageData(0, 0, width, height);
 }
 

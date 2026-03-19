@@ -21,9 +21,12 @@
 
 	type OpenCvModule = typeof import('@techstark/opencv-js');
 	type BoardDetection = ReturnType<typeof localizeChessboardFromImageData>;
+	const CAMERA_STAGE_ASPECT_RATIO = 4 / 3;
 	const HANDLE_RADIUS = 0.034;
 	const HANDLE_GRAB_RADIUS = 0.14;
-	const SETUP_ANALYSIS_MAX_DIMENSION = 448;
+	const SETUP_ANALYSIS_MAX_DIMENSION = 720;
+	const SETUP_ANALYSIS_FALLBACK_MAX_DIMENSION = 960;
+	const SETUP_MIN_CONFIDENT_SELECTED_SQUARES = 28;
 	const SETUP_REFERENCE_MAX_DIMENSION = 720;
 	const SETUP_AUTODETECT_ATTEMPTS = 1;
 	const SETUP_AUTODETECT_INTERVAL_MS = 200;
@@ -154,6 +157,10 @@
 		return localizeChessboardFromImageData(fallbackCv, frame);
 	}
 
+	function isConfidentDetection(detection: NonNullable<BoardDetection>) {
+		return detection.selectedCount >= SETUP_MIN_CONFIDENT_SELECTED_SQUARES;
+	}
+
 	function updateHandlePosition(index: number, clientX: number, clientY: number) {
 		const source = cameraMode === 'browser' ? streamVideo : streamImage;
 		if (!source) return;
@@ -233,7 +240,8 @@
 
 		try {
 			return captureImageDataFromElement(source, snapshotCanvas, {
-				maxDimension
+				maxDimension,
+				coverAspectRatio: CAMERA_STAGE_ASPECT_RATIO
 			});
 		} catch (error) {
 			throw new Error(
@@ -382,7 +390,6 @@
 		await waitForNextPaint();
 
 		try {
-			const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
 			const activeCv = cvModule ?? await warmCvModule();
 			if (!activeCv) {
 				busyLabel = null;
@@ -390,9 +397,36 @@
 				return;
 			}
 
-			const detection = await detectBoard(frame, activeCv);
+			statusMessage = 'OpenCV is analyzing a cropped high-resolution frame for board contours.';
+			const frame = captureFrame(SETUP_ANALYSIS_MAX_DIMENSION);
+			let detection = await detectBoard(frame, activeCv);
+			let detectionFrame = frame;
+
+			if (!detection || !isConfidentDetection(detection)) {
+				statusMessage = detection
+					? `OpenCV found only ${detection.selectedCount} clustered squares. Retrying at near-native resolution.`
+					: 'No board was found in the first pass. Retrying at near-native resolution.';
+				await waitForNextPaint();
+				const fallbackFrame = captureFrame(SETUP_ANALYSIS_FALLBACK_MAX_DIMENSION);
+				const fallbackDetection = await detectBoard(fallbackFrame, activeCv);
+				if (
+					fallbackDetection
+					&& (
+						!detection
+						|| fallbackDetection.selectedCount > detection.selectedCount
+						|| (
+							fallbackDetection.selectedCount === detection.selectedCount
+							&& fallbackDetection.score > detection.score
+						)
+					)
+				) {
+					detection = fallbackDetection;
+					detectionFrame = fallbackFrame;
+				}
+			}
+
 			if (detection) {
-				normalizedQuad = normalizeQuad(detection.quad, frame.width, frame.height);
+				normalizedQuad = normalizeQuad(detection.quad, detectionFrame.width, detectionFrame.height);
 				detectedBoardScore = detection.score;
 				statusMessage = `Board detected from OpenCV contours (${detection.selectedCount} clustered squares from ${detection.candidateCount} candidates).`;
 				busyLabel = null;
@@ -435,7 +469,8 @@
 			}
 
 			referenceImageDataUrl = imageDataToDataUrl(source, snapshotCanvas, 'image/jpeg', 0.9, {
-				maxDimension: SETUP_REFERENCE_MAX_DIMENSION
+				maxDimension: SETUP_REFERENCE_MAX_DIMENSION,
+				coverAspectRatio: CAMERA_STAGE_ASPECT_RATIO
 			});
 			referenceImageData = await loadReferenceImage(referenceImageDataUrl);
 			statusMessage = 'Empty-board reference captured. Save calibration to use it from the clock.';
