@@ -11,9 +11,9 @@
 
 ---
 
-## Setup screen runs the browser OpenCV contour detector, saves calibration, and tracks the initial setup occupancy
+## Setup screen runs the browser OpenCV contour detector, saves calibration, and tracks color-coded initial setup occupancy
 
-![Setup screen runs the browser OpenCV contour detector, saves calibration, and tracks the initial setup occupancy](./screenshots/001-001-quad-adjusted-and-saved.png)
+![Setup screen runs the browser OpenCV contour detector, saves calibration, and tracks color-coded initial setup occupancy](./screenshots/001-001-quad-adjusted-and-saved.png)
 
 **Verifications:**
 - [x] Board auto-detect updates the quad from the mocked webcam frame
@@ -22,5 +22,6 @@
 - [x] The empty-board reference can be captured and saved locally
 - [x] The occupancy threshold slider updates live and saves with calibration
 - [x] Switching the mocked webcam to `tests/images/game/initial_setup.jpg` updates the live occupancy preview to 31 occupied squares at the shadow-resistant `3.5x` baseline
+- [x] The occupied-square markers classify into both white and black piece colors in the browser preview
 
 ---
