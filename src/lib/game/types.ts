@@ -92,6 +92,7 @@ export type GameLogReport = {
 		cameraUrl: string;
 		layoutMode: LayoutMode;
 	};
+	currentMoveCaptureDiagnostics: MoveCaptureDiagnostics;
 	calibration: unknown;
 	moveCaptures: MoveCompletionRecord[];
 	actions: Array<{
