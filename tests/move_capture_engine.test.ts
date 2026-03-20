@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { MoveCaptureEngine } from '$lib/game/move-capture-engine';
+import {
+	looksLikeInitialBoardSetup,
+	MoveCaptureEngine
+} from '$lib/game/move-capture-engine';
 
 describe('MoveCaptureEngine', () => {
 	it('commits only after a stable candidate window', () => {
@@ -101,5 +104,45 @@ describe('MoveCaptureEngine', () => {
 		expect(reverted.commit).toBeNull();
 		expect(reverted.diagnostics.state).toBe('stable');
 		expect(reverted.diagnostics.reason).toBe('matches-last-accepted');
+	});
+});
+
+describe('looksLikeInitialBoardSetup', () => {
+	it('accepts a standard initial setup aligned by rows', () => {
+		const occupiedPieces = [
+			...Array.from({ length: 16 }, (_, index) => ({
+				index,
+				color: 'white' as const
+			})),
+			...Array.from({ length: 16 }, (_, offset) => ({
+				index: 48 + offset,
+				color: 'black' as const
+			}))
+		];
+
+		expect(looksLikeInitialBoardSetup(occupiedPieces)).toBe(true);
+	});
+
+	it('rejects a non-start position with missing middle-rank separation', () => {
+		const occupiedPieces = [
+			...Array.from({ length: 8 }, (_, index) => ({
+				index,
+				color: 'white' as const
+			})),
+			...Array.from({ length: 8 }, (_, index) => ({
+				index: 16 + index,
+				color: 'white' as const
+			})),
+			...Array.from({ length: 8 }, (_, index) => ({
+				index: 40 + index,
+				color: 'black' as const
+			})),
+			...Array.from({ length: 8 }, (_, index) => ({
+				index: 56 + index,
+				color: 'black' as const
+			}))
+		];
+
+		expect(looksLikeInitialBoardSetup(occupiedPieces)).toBe(false);
 	});
 });

@@ -16,9 +16,14 @@
 	} from '$lib/vision/chessboard';
 	import { loadOpenCv } from '$lib/vision/opencv-browser';
 	import { imageDataFrameToDataUrl } from '$lib/vision/browser-images';
-	import { MoveCaptureEngine } from '$lib/game/move-capture-engine';
+	import {
+		buildOccupiedPiecesFingerprint,
+		looksLikeInitialBoardSetup,
+		MoveCaptureEngine
+	} from '$lib/game/move-capture-engine';
 	import {
 		gameStore,
+		moveCaptureArmedChanged,
 		moveCaptureStateUpdated,
 		moveCompletionCommitted
 	} from '$lib/game/store';
@@ -60,8 +65,13 @@
 	let loadedReferenceUrl = $state<string | null>(null);
 	let game = $state<GameState>(gameStore.getState().game);
 	let storeUnsubscribe: (() => void) | null = null;
+	let initialSetupFingerprint = '';
+	let initialSetupSampleCount = 0;
+	let initialSetupSinceMs = 0;
 
 	const moveCaptureEngine = new MoveCaptureEngine();
+	const INITIAL_SETUP_SAMPLE_COUNT = 3;
+	const INITIAL_SETUP_DWELL_MS = 500;
 
 	const effectiveCameraUrl = $derived(cameraUrl || calibration?.cameraUrl || DEFAULT_CAMERA_URL);
 	const streamSrc = $derived(
@@ -144,6 +154,12 @@
 	function stopBrowserCamera() {
 		mediaStream?.getTracks().forEach((track) => track.stop());
 		mediaStream = null;
+	}
+
+	function resetInitialSetupTracker() {
+		initialSetupFingerprint = '';
+		initialSetupSampleCount = 0;
+		initialSetupSinceMs = 0;
 	}
 
 	async function startBrowserCamera() {
@@ -316,9 +332,73 @@
 
 			if (referenceImageData) {
 				drawOverlay(context, resolvedOccupiedPieces);
-				if (game.gameState === 'running') {
+				const sampleTimestampMs = Date.now();
+				if (!game.moveCaptureArmed) {
+					const initialSetupDetected = looksLikeInitialBoardSetup(resolvedOccupiedPieces);
+					if (initialSetupDetected) {
+						const fingerprint = buildOccupiedPiecesFingerprint(resolvedOccupiedPieces);
+						if (fingerprint !== initialSetupFingerprint) {
+							initialSetupFingerprint = fingerprint;
+							initialSetupSampleCount = 1;
+							initialSetupSinceMs = sampleTimestampMs;
+						} else {
+							initialSetupSampleCount += 1;
+						}
+
+						const settledForMs = sampleTimestampMs - initialSetupSinceMs;
+						if (
+							initialSetupSampleCount >= INITIAL_SETUP_SAMPLE_COUNT
+							&& settledForMs >= INITIAL_SETUP_DWELL_MS
+						) {
+							gameStore.dispatch(moveCaptureArmedChanged({
+								armed: true,
+								activatedAtMs: sampleTimestampMs
+							}));
+							moveCaptureEngine.reset('idle', 'capture-armed');
+							resetInitialSetupTracker();
+							const seededDecision = moveCaptureEngine.consumeSample({
+								timestampMs: sampleTimestampMs,
+								occupiedPieces: resolvedOccupiedPieces,
+								analysisHealth: {
+									boardMissing: false,
+									referenceMissing: false,
+									lowConfidence: false
+								}
+							});
+							gameStore.dispatch(moveCaptureStateUpdated(seededDecision.diagnostics));
+							statusLabel = `${resolvedOccupiedIndices.length} occupied · capture armed`;
+						} else {
+							gameStore.dispatch(moveCaptureStateUpdated({
+								state: 'idle',
+								stableSampleCount: initialSetupSampleCount,
+								changedSquareIndices: [],
+								occupiedPieceCount: resolvedOccupiedPieces.length,
+								whitePieceCount: resolvedOccupiedPieces.filter((piece) => piece.color === 'white').length,
+								blackPieceCount: resolvedOccupiedPieces.filter((piece) => piece.color === 'black').length,
+								reason: 'awaiting-initial-setup-confirmation',
+								lastSampleAtMs: sampleTimestampMs
+							}));
+							statusLabel = `${resolvedOccupiedIndices.length} occupied · arming capture`;
+						}
+					} else {
+						resetInitialSetupTracker();
+						moveCaptureEngine.reset('idle', 'awaiting-initial-setup');
+						gameStore.dispatch(moveCaptureStateUpdated({
+							state: 'idle',
+							stableSampleCount: 0,
+							changedSquareIndices: [],
+							occupiedPieceCount: resolvedOccupiedPieces.length,
+							whitePieceCount: resolvedOccupiedPieces.filter((piece) => piece.color === 'white').length,
+							blackPieceCount: resolvedOccupiedPieces.filter((piece) => piece.color === 'black').length,
+							reason: 'awaiting-initial-setup',
+							lastSampleAtMs: sampleTimestampMs
+						}));
+						statusLabel = `${resolvedOccupiedIndices.length} occupied`;
+					}
+				} else {
+					resetInitialSetupTracker();
 					const decision = moveCaptureEngine.consumeSample({
-						timestampMs: Date.now(),
+						timestampMs: sampleTimestampMs,
 						occupiedPieces: resolvedOccupiedPieces,
 						analysisHealth: {
 							boardMissing: false,
@@ -333,7 +413,7 @@
 							captureId: `${game.sessionId}-move-${decision.commit.moveIndex.toString().padStart(3, '0')}`,
 							gameId: game.sessionId,
 							moveIndex: decision.commit.moveIndex,
-							capturedAtMs: Date.now(),
+							capturedAtMs: sampleTimestampMs,
 							source: cameraMode === 'browser' ? 'browser-webcam' : 'remote-camera',
 							calibrationVersion: calibration.updatedAt,
 							occupancyThreshold: calibration.occupancyThreshold ?? DEFAULT_OCCUPANCY_THRESHOLD,
@@ -365,10 +445,6 @@
 					} else {
 						statusLabel = `${resolvedOccupiedIndices.length} occupied · ${decision.diagnostics.state}`;
 					}
-				} else {
-					moveCaptureEngine.reset('idle', 'game-not-running');
-					gameStore.dispatch(moveCaptureStateUpdated(moveCaptureEngine.getDiagnostics()));
-					statusLabel = `${resolvedOccupiedIndices.length} occupied`;
 				}
 			} else {
 				moveCaptureEngine.reset('uncalibrated', 'missing-reference');

@@ -61,7 +61,8 @@ export async function exportCurrentGameLogReport(gameState: GameState, issueWind
 			moveCaptureCount: gameState.moveCaptures.length,
 			connectionStatus: gameState.connectionStatus,
 			cameraUrl: gameState.cameraUrl,
-			layoutMode: gameState.layoutMode
+			layoutMode: gameState.layoutMode,
+			moveCaptureArmed: gameState.moveCaptureArmed
 		},
 		currentMoveCaptureDiagnostics: gameState.moveCaptureDiagnostics,
 		calibration: loadBoardCalibration(),

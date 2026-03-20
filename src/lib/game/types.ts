@@ -75,6 +75,8 @@ export type GameState = {
 	connectionStatus: ConnectionStatus;
 	cameraUrl: string;
 	layoutMode: LayoutMode;
+	moveCaptureArmed: boolean;
+	moveCaptureActivatedAtMs: number | null;
 	moveCaptureDiagnostics: MoveCaptureDiagnostics;
 	moveCaptures: MoveCompletionRecord[];
 	lastLogReportAtMs: number | null;
@@ -91,6 +93,7 @@ export type GameLogReport = {
 		connectionStatus: ConnectionStatus;
 		cameraUrl: string;
 		layoutMode: LayoutMode;
+		moveCaptureArmed: boolean;
 	};
 	currentMoveCaptureDiagnostics: MoveCaptureDiagnostics;
 	calibration: unknown;
