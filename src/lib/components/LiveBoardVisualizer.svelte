@@ -33,7 +33,7 @@
 
 	const DEFAULT_CAMERA_URL = 'http://chesscam.local';
 	const CAMERA_STAGE_ASPECT_RATIO = 4 / 3;
-	const LIVE_ANALYSIS_INTERVAL_MS = 650;
+	const LIVE_ANALYSIS_INTERVAL_MS = 100;
 	const LIVE_CAPTURE_MAX_DIMENSION = 640;
 
 	let {
@@ -68,6 +68,7 @@
 	let initialSetupFingerprint = '';
 	let initialSetupSampleCount = 0;
 	let initialSetupSinceMs = 0;
+	let moveToneAudioContext: AudioContext | null = null;
 
 	const moveCaptureEngine = new MoveCaptureEngine();
 	const INITIAL_SETUP_SAMPLE_COUNT = 3;
@@ -105,6 +106,9 @@
 		});
 
 		mounted = true;
+		if (typeof window !== 'undefined') {
+			window.addEventListener('pointerdown', primeMoveToneContext, { passive: true });
+		}
 		calibration = loadBoardCalibration();
 		cameraMode = calibration?.cameraMode ?? 'browser';
 		if (calibration?.referenceImageDataUrl) {
@@ -131,6 +135,9 @@
 
 	onDestroy(() => {
 		mounted = false;
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('pointerdown', primeMoveToneContext);
+		}
 		clearScheduledProcessing();
 		stopBrowserCamera();
 		storeUnsubscribe?.();
@@ -160,6 +167,51 @@
 		initialSetupFingerprint = '';
 		initialSetupSampleCount = 0;
 		initialSetupSinceMs = 0;
+	}
+
+	function getMoveToneAudioContext() {
+		if (moveToneAudioContext) return moveToneAudioContext;
+
+		const AudioContextCtor = window.AudioContext
+			|| (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+		if (!AudioContextCtor) {
+			return null;
+		}
+
+		moveToneAudioContext = new AudioContextCtor();
+		return moveToneAudioContext;
+	}
+
+	function primeMoveToneContext() {
+		const context = getMoveToneAudioContext();
+		if (!context || context.state !== 'suspended') return;
+		void context.resume().catch(() => {});
+	}
+
+	function playMoveRecognizedTone() {
+		const context = getMoveToneAudioContext();
+		if (!context) return;
+		if (context.state === 'suspended') {
+			void context.resume().catch(() => {});
+			return;
+		}
+
+		const oscillator = context.createOscillator();
+		const gain = context.createGain();
+		const now = context.currentTime;
+
+		oscillator.type = 'sine';
+		oscillator.frequency.setValueAtTime(659.25, now);
+		oscillator.frequency.exponentialRampToValueAtTime(783.99, now + 0.16);
+
+		gain.gain.setValueAtTime(0.0001, now);
+		gain.gain.exponentialRampToValueAtTime(0.03, now + 0.025);
+		gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+		oscillator.connect(gain);
+		gain.connect(context.destination);
+		oscillator.start(now);
+		oscillator.stop(now + 0.24);
 	}
 
 	async function startBrowserCamera() {
@@ -441,6 +493,7 @@
 							},
 							changedSquareIndices: decision.commit.changedSquareIndices
 						}));
+						playMoveRecognizedTone();
 						statusLabel = `Move ${decision.commit.moveIndex} captured`;
 					} else {
 						statusLabel = `${resolvedOccupiedIndices.length} occupied · ${decision.diagnostics.state}`;
