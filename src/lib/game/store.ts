@@ -197,9 +197,12 @@ const PERSISTED_ACTION_TYPES = new Set<string>([
 	gameSlice.actions.connectionStatusChanged.type,
 	gameSlice.actions.layoutModeToggled.type,
 	gameSlice.actions.clockTapped.type,
+	gameSlice.actions.moveCaptureStateUpdated.type,
 	gameSlice.actions.moveCompletionCommitted.type,
 	gameSlice.actions.logReportPrepared.type
 ]);
+
+let lastMoveCaptureStateLogKey = '';
 
 const actionLogMiddleware: Middleware = (api) => (next) => (action) => {
 	const result = next(action);
@@ -213,6 +216,20 @@ const actionLogMiddleware: Middleware = (api) => (next) => (action) => {
 		&& PERSISTED_ACTION_TYPES.has(action.type)
 	) {
 		const state = api.getState() as { game: GameState };
+		if (action.type === gameSlice.actions.moveCaptureStateUpdated.type) {
+			const payload = ('payload' in action ? action.payload : null) as MoveCaptureDiagnostics | null;
+			const nextLogKey = JSON.stringify({
+				gameId: state.game.sessionId,
+				state: payload?.state ?? null,
+				stableSampleCount: payload?.stableSampleCount ?? null,
+				reason: payload?.reason ?? null,
+				changedSquareIndices: payload?.changedSquareIndices ?? []
+			});
+			if (nextLogKey === lastMoveCaptureStateLogKey) {
+				return result;
+			}
+			lastMoveCaptureStateLogKey = nextLogKey;
+		}
 		void appendReduxActionLog({
 			gameId: state.game.sessionId,
 			recordedAtMs: Date.now(),
