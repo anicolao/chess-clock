@@ -7,6 +7,7 @@ export const DEFAULT_OCCUPANCY_THRESHOLD = 3.25;
 export type BoardCalibration = {
 	cameraMode: CameraMode;
 	cameraUrl: string;
+	browserDeviceId?: string | null;
 	normalizedQuad: [NormalizedPoint, NormalizedPoint, NormalizedPoint, NormalizedPoint];
 	referenceImageDataUrl: string | null;
 	occupancyThreshold: number;
@@ -37,6 +38,9 @@ function isValidCalibration(value: unknown): value is BoardCalibration {
 		&& (((value as BoardCalibration).cameraMode === 'browser')
 			|| (value as BoardCalibration).cameraMode === 'remote')
 		&& typeof (value as BoardCalibration).cameraUrl === 'string'
+		&& ((((value as { browserDeviceId?: unknown }).browserDeviceId) === undefined)
+			|| (((value as { browserDeviceId?: unknown }).browserDeviceId) === null)
+			|| typeof (value as { browserDeviceId?: unknown }).browserDeviceId === 'string')
 		&& Array.isArray((value as BoardCalibration).normalizedQuad)
 		&& (value as BoardCalibration).normalizedQuad.length === 4
 		&& (value as BoardCalibration).normalizedQuad.every(isValidPoint)
@@ -58,6 +62,7 @@ export function loadBoardCalibration(): BoardCalibration | null {
 		const normalized = {
 			cameraMode: parsed.cameraMode === 'remote' ? 'remote' : 'browser',
 			cameraUrl: typeof parsed.cameraUrl === 'string' ? parsed.cameraUrl : 'http://chesscam.local',
+			browserDeviceId: typeof parsed.browserDeviceId === 'string' ? parsed.browserDeviceId : null,
 			normalizedQuad: parsed.normalizedQuad,
 			referenceImageDataUrl: parsed.referenceImageDataUrl ?? null,
 			occupancyThreshold: typeof parsed.occupancyThreshold === 'number'

@@ -52,6 +52,8 @@
 
 	let cameraMode = $state<CameraMode>('browser');
 	let cameraUrl = $state(DEFAULT_CAMERA_URL);
+	let browserDeviceId = $state<string | null>(null);
+	let browserVideoDevices = $state<MediaDeviceInfo[]>([]);
 	let normalizedQuad = $state(createDefaultQuad());
 	let referenceImageDataUrl = $state<string | null>(null);
 	let occupancyThreshold = $state(DEFAULT_OCCUPANCY_THRESHOLD);
@@ -119,6 +121,7 @@
 			cameraUrl = initialCameraUrl !== DEFAULT_CAMERA_URL
 				? initialCameraUrl
 				: (savedCalibration.cameraUrl || initialCameraUrl);
+			browserDeviceId = savedCalibration.browserDeviceId ?? null;
 			normalizedQuad = cloneQuad(savedCalibration.normalizedQuad);
 			referenceImageDataUrl = savedCalibration.referenceImageDataUrl;
 			occupancyThreshold = savedCalibration.occupancyThreshold;
@@ -135,6 +138,8 @@
 		statusMessage = cameraMode === 'browser'
 			? 'Tap Start webcam, then drag the corners or run auto-detect.'
 			: 'Connect the remote camera, then drag the corners or run auto-detect.';
+
+		await refreshBrowserDevices();
 	});
 
 	onDestroy(() => {
@@ -149,6 +154,26 @@
 		clearAutodetectSession();
 		mediaStream?.getTracks().forEach((track) => track.stop());
 		mediaStream = null;
+	}
+
+	async function refreshBrowserDevices() {
+		if (!navigator.mediaDevices?.enumerateDevices) {
+			browserVideoDevices = [];
+			return;
+		}
+
+		try {
+			const devices = await navigator.mediaDevices.enumerateDevices();
+			browserVideoDevices = devices.filter((device) => device.kind === 'videoinput');
+			if (
+				browserDeviceId
+				&& !browserVideoDevices.some((device) => device.deviceId === browserDeviceId)
+			) {
+				browserDeviceId = null;
+			}
+		} catch (error) {
+			browserVideoDevices = [];
+		}
 	}
 
 	async function waitForNextPaint() {
@@ -312,6 +337,7 @@
 
 		if (mode === 'browser') {
 			statusMessage = 'Tap Start webcam to begin the browser camera.';
+			void refreshBrowserDevices();
 		} else {
 			stopBrowserCamera();
 			statusMessage = 'Tap Connect camera to start the remote stream.';
@@ -334,7 +360,9 @@
 		try {
 			mediaStream = await navigator.mediaDevices.getUserMedia({
 				video: {
-					facingMode: { ideal: 'environment' },
+					...(browserDeviceId
+						? { deviceId: { exact: browserDeviceId } }
+						: { facingMode: { ideal: 'environment' } }),
 					width: { ideal: 1280 },
 					height: { ideal: 720 }
 				},
@@ -345,6 +373,12 @@
 					streamVideo.srcObject = mediaStream;
 					await streamVideo.play().catch(() => {});
 				}
+				const activeTrack = mediaStream.getVideoTracks()[0];
+				const activeDeviceId = activeTrack?.getSettings().deviceId;
+				if (typeof activeDeviceId === 'string' && activeDeviceId) {
+					browserDeviceId = activeDeviceId;
+				}
+				await refreshBrowserDevices();
 				statusMessage = 'Browser camera connected. Drag a corner handle or run auto-detect.';
 			} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Failed to open the browser camera.';
@@ -541,6 +575,7 @@
 		const calibration: BoardCalibration = {
 			cameraMode,
 			cameraUrl,
+			browserDeviceId,
 			normalizedQuad,
 			referenceImageDataUrl,
 			occupancyThreshold,
@@ -575,8 +610,20 @@
 		detectedBoardScore = null;
 		savedAt = null;
 		clearBoardCalibration();
+		browserDeviceId = null;
 		statusMessage = 'Saved calibration cleared. Adjust the quad and capture a new empty-board reference.';
 		errorMessage = null;
+	}
+
+	function handleBrowserDeviceChange(event: Event) {
+		const nextValue = (event.currentTarget as HTMLSelectElement).value;
+		browserDeviceId = nextValue || null;
+		statusMessage = nextValue
+			? 'Webcam changed. Start the camera again or save after confirming the live feed.'
+			: 'Using the default browser camera. Start the camera to confirm the live feed.';
+		if (streamEnabled && cameraMode === 'browser') {
+			void startBrowserCamera();
+		}
 	}
 
 	function drawOccupancyOverlay(context: CanvasRenderingContext2D, occupiedPieces: OccupiedPiece[]) {
@@ -732,7 +779,23 @@
 					autocomplete="off"
 				/>
 			{:else}
-				<p class="camera-help">{BROWSER_CAMERA_NOTICE}</p>
+				<div class="browser-camera-controls">
+					<p class="camera-help">{BROWSER_CAMERA_NOTICE}</p>
+					<label for="browser-device" class="device-label">Webcam</label>
+					<select
+						id="browser-device"
+						class="browser-device-select"
+						value={browserDeviceId ?? ''}
+						onchange={handleBrowserDeviceChange}
+					>
+						<option value="">Default camera</option>
+						{#each browserVideoDevices as device, index}
+							<option value={device.deviceId}>
+								{device.label || `Camera ${index + 1}`}
+							</option>
+						{/each}
+					</select>
+				</div>
 			{/if}
 			<button class="action-btn" type="button" onclick={connectCamera}>
 				{cameraMode === 'browser' ? 'Start webcam' : 'Connect camera'}
@@ -1009,6 +1072,30 @@
 		flex: 1 1 20rem;
 		margin: 0;
 		color: #cbd5e1;
+	}
+
+	.browser-camera-controls {
+		flex: 1 1 20rem;
+		display: grid;
+		gap: 0.45rem;
+	}
+
+	.device-label {
+		margin: 0;
+		font-size: 0.8rem;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #94a3b8;
+	}
+
+	.browser-device-select {
+		width: min(100%, 24rem);
+		padding: 0.8rem 0.95rem;
+		border-radius: 14px;
+		border: 1px solid rgba(148, 163, 184, 0.28);
+		background: rgba(15, 23, 42, 0.8);
+		color: #f8fafc;
+		font-size: 1rem;
 	}
 
 	.source-row {

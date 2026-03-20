@@ -161,9 +161,12 @@
 		}
 
 		try {
+			const browserDeviceId = calibration?.browserDeviceId;
 			mediaStream = await navigator.mediaDevices.getUserMedia({
 				video: {
-					facingMode: { ideal: 'environment' },
+					...(browserDeviceId
+						? { deviceId: { exact: browserDeviceId } }
+						: { facingMode: { ideal: 'environment' } }),
 					width: { ideal: 1280 },
 					height: { ideal: 720 }
 				},
