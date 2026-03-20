@@ -68,9 +68,9 @@
 	let initialSetupFingerprint = '';
 	let initialSetupSampleCount = 0;
 	let initialSetupSinceMs = 0;
-	let moveToneAudioContext: AudioContext | null = null;
+	let primeToneAudio: HTMLAudioElement | null = null;
+	let moveToneAudio: HTMLAudioElement | null = null;
 	let moveTonePrimed = $state(false);
-	let moveToneUnavailable = $state(false);
 
 	const moveCaptureEngine = new MoveCaptureEngine();
 	const INITIAL_SETUP_SAMPLE_COUNT = 3;
@@ -110,6 +110,7 @@
 		mounted = true;
 		if (typeof window !== 'undefined') {
 			window.addEventListener('pointerdown', primeMoveToneContext, { passive: true });
+			window.addEventListener('touchend', primeMoveToneContext, { passive: true });
 			window.addEventListener('keydown', primeMoveToneContext, { passive: true });
 		}
 		calibration = loadBoardCalibration();
@@ -140,10 +141,15 @@
 		mounted = false;
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('pointerdown', primeMoveToneContext);
+			window.removeEventListener('touchend', primeMoveToneContext);
 			window.removeEventListener('keydown', primeMoveToneContext);
 		}
 		clearScheduledProcessing();
 		stopBrowserCamera();
+		primeToneAudio?.pause();
+		moveToneAudio?.pause();
+		primeToneAudio = null;
+		moveToneAudio = null;
 		storeUnsubscribe?.();
 	});
 
@@ -173,97 +179,116 @@
 		initialSetupSinceMs = 0;
 	}
 
-	function getMoveToneAudioContext() {
-		if (typeof window === 'undefined') {
-			return null;
-		}
-		if (moveToneAudioContext) return moveToneAudioContext;
-
-		const AudioContextCtor = window.AudioContext
-			|| (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-		if (!AudioContextCtor) {
-			moveToneUnavailable = true;
-			return null;
-		}
-
-		moveToneAudioContext = new AudioContextCtor();
-		return moveToneAudioContext;
-	}
-
-	function playToneSweep(
-		context: AudioContext,
+	function createToneDataUrl(
 		{
 			startHz,
 			endHz,
 			durationMs,
-			peakGain
+			peakAmplitude
 		}: {
 			startHz: number;
 			endHz: number;
 			durationMs: number;
-			peakGain: number;
+			peakAmplitude: number;
 		}
 	) {
-		const oscillator = context.createOscillator();
-		const gain = context.createGain();
-		const now = context.currentTime;
+		const sampleRate = 22050;
+		const sampleCount = Math.max(1, Math.round((sampleRate * durationMs) / 1000));
+		const bytesPerSample = 2;
+		const dataSize = sampleCount * bytesPerSample;
+		const buffer = new ArrayBuffer(44 + dataSize);
+		const view = new DataView(buffer);
 		const durationSeconds = durationMs / 1000;
 
-		oscillator.type = 'sine';
-		oscillator.frequency.setValueAtTime(startHz, now);
-		oscillator.frequency.exponentialRampToValueAtTime(endHz, now + Math.max(0.05, durationSeconds * 0.72));
+		const writeAscii = (offset: number, value: string) => {
+			for (let index = 0; index < value.length; index += 1) {
+				view.setUint8(offset + index, value.charCodeAt(index));
+			}
+		};
 
-		gain.gain.setValueAtTime(0.0001, now);
-		gain.gain.exponentialRampToValueAtTime(peakGain, now + Math.min(0.03, durationSeconds * 0.18));
-		gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSeconds);
+		writeAscii(0, 'RIFF');
+		view.setUint32(4, 36 + dataSize, true);
+		writeAscii(8, 'WAVE');
+		writeAscii(12, 'fmt ');
+		view.setUint32(16, 16, true);
+		view.setUint16(20, 1, true);
+		view.setUint16(22, 1, true);
+		view.setUint32(24, sampleRate, true);
+		view.setUint32(28, sampleRate * bytesPerSample, true);
+		view.setUint16(32, bytesPerSample, true);
+		view.setUint16(34, 16, true);
+		writeAscii(36, 'data');
+		view.setUint32(40, dataSize, true);
 
-		oscillator.connect(gain);
-		gain.connect(context.destination);
-		oscillator.start(now);
-		oscillator.stop(now + durationSeconds + 0.02);
+		for (let index = 0; index < sampleCount; index += 1) {
+			const t = index / sampleRate;
+			const progress = sampleCount <= 1 ? 1 : index / (sampleCount - 1);
+			const frequency = startHz * Math.pow(endHz / startHz, progress);
+			const fadeIn = Math.min(1, t / 0.02);
+			const fadeOut = Math.min(1, (durationSeconds - t) / 0.05);
+			const envelope = Math.max(0, Math.min(fadeIn, fadeOut));
+			const sample = Math.sin(2 * Math.PI * frequency * t) * peakAmplitude * envelope;
+			view.setInt16(44 + (index * bytesPerSample), Math.round(sample * 32767), true);
+		}
+
+		let binary = '';
+		const bytes = new Uint8Array(buffer);
+		for (const byte of bytes) {
+			binary += String.fromCharCode(byte);
+		}
+		return `data:audio/wav;base64,${btoa(binary)}`;
+	}
+
+	function ensureMoveToneAudio() {
+		if (typeof window === 'undefined') {
+			return null;
+		}
+		if (!primeToneAudio) {
+			primeToneAudio = new Audio(createToneDataUrl({
+				startHz: 523.25,
+				endHz: 659.25,
+				durationMs: 160,
+				peakAmplitude: 0.24
+			}));
+			primeToneAudio.preload = 'auto';
+			primeToneAudio.setAttribute('playsinline', '');
+			primeToneAudio.setAttribute('webkit-playsinline', '');
+		}
+		if (!moveToneAudio) {
+			moveToneAudio = new Audio(createToneDataUrl({
+				startHz: 659.25,
+				endHz: 783.99,
+				durationMs: 240,
+				peakAmplitude: 0.28
+			}));
+			moveToneAudio.preload = 'auto';
+			moveToneAudio.setAttribute('playsinline', '');
+			moveToneAudio.setAttribute('webkit-playsinline', '');
+		}
+		return { primeToneAudio, moveToneAudio };
 	}
 
 	async function primeMoveToneContext() {
-		const context = getMoveToneAudioContext();
-		if (!context) return;
-		if (context.state === 'suspended') {
-			try {
-				await context.resume();
-			} catch {
-				return;
-			}
-		}
 		if (moveTonePrimed) return;
-		moveTonePrimed = true;
-		playToneSweep(context, {
-			startHz: 523.25,
-			endHz: 659.25,
-			durationMs: 140,
-			peakGain: 0.042
-		});
+		const audio = ensureMoveToneAudio();
+		if (!audio) return;
+		audio.primeToneAudio.currentTime = 0;
+		try {
+			await audio.primeToneAudio.play();
+			moveTonePrimed = true;
+		} catch {
+			moveTonePrimed = false;
+		}
 	}
 
 	function playMoveRecognizedTone() {
-		const context = getMoveToneAudioContext();
-		if (!context) return;
-		if (context.state === 'suspended') {
-			void context.resume()
-				.then(() => {
-					playToneSweep(context, {
-						startHz: 659.25,
-						endHz: 783.99,
-						durationMs: 240,
-						peakGain: 0.05
-					});
-				})
-				.catch(() => {});
+		const audio = ensureMoveToneAudio();
+		if (!audio) return;
+		const moveAudio = audio.moveToneAudio;
+		moveAudio.pause();
+		moveAudio.currentTime = 0;
+		void moveAudio.play().catch(() => {
 			return;
-		}
-		playToneSweep(context, {
-			startHz: 659.25,
-			endHz: 783.99,
-			durationMs: 240,
-			peakGain: 0.05
 		});
 	}
 
