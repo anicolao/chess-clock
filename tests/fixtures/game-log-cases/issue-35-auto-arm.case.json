@@ -1,0 +1,688 @@
+{
+  "sourceFile": "tests/fixtures/game-log-reports/issue-35-auto-arm.json",
+  "gameId": "ff160c45-4000-4f24-93e4-f6bcb51be877",
+  "generatedAtMs": 1773978217998,
+  "summary": {
+    "gameState": "idle",
+    "activePlayer": null,
+    "winner": null,
+    "moveCaptureCount": 3,
+    "connectionStatus": "offline",
+    "cameraUrl": "http://chesscam.local",
+    "layoutMode": "opposing",
+    "moveCaptureArmed": true
+  },
+  "currentMoveCaptureDiagnostics": {
+    "state": "stable",
+    "stableSampleCount": 1,
+    "changedSquareIndices": [],
+    "occupiedPieceCount": 32,
+    "whitePieceCount": 16,
+    "blackPieceCount": 16,
+    "reason": "matches-last-accepted",
+    "lastSampleAtMs": 1773978217344
+  },
+  "moveCaptures": [
+    {
+      "moveIndex": 1,
+      "capturedAtMs": 1773978181806,
+      "acceptedAfterMs": 2158,
+      "acceptedAfterSamples": 3,
+      "changedSquareIndices": [
+        16,
+        36,
+        52
+      ],
+      "occupiedPiecesCount": 33,
+      "previousFingerprint": "0:black|1:black|2:black|3:black|4:black|5:black|6:black|7:black|8:black|9:black|10:black|11:black|12:black|13:black|14:black|15:black|48:white|49:white|50:white|51:white|52:white|53:white|54:white|55:white|56:white|57:white|58:white|59:white|60:white|61:white|62:white|63:white",
+      "nextFingerprint": "0:black|1:black|2:black|3:black|4:black|5:black|6:black|7:black|8:black|9:black|10:black|11:black|12:black|13:black|14:black|15:black|16:white|36:white|48:white|49:white|50:white|51:white|53:white|54:white|55:white|56:white|57:white|58:white|59:white|60:white|61:white|62:white|63:white"
+    },
+    {
+      "moveIndex": 2,
+      "capturedAtMs": 1773978207653,
+      "acceptedAfterMs": 2143,
+      "acceptedAfterSamples": 3,
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        35,
+        51
+      ],
+      "occupiedPiecesCount": 32,
+      "previousFingerprint": "0:black|1:black|2:black|3:black|4:black|5:black|6:black|7:black|8:black|9:black|10:black|11:black|12:black|13:black|14:black|15:black|16:white|36:white|48:white|49:white|50:white|51:white|53:white|54:white|55:white|56:white|57:white|58:white|59:white|60:white|61:white|62:white|63:white",
+      "nextFingerprint": "0:black|1:black|2:black|3:black|4:black|5:black|6:black|7:black|8:black|9:black|10:black|11:black|13:black|14:black|15:black|20:black|35:white|36:white|48:white|49:white|50:white|53:white|54:white|55:white|56:white|57:white|58:white|59:white|60:white|61:white|62:white|63:white"
+    },
+    {
+      "moveIndex": 3,
+      "capturedAtMs": 1773978216255,
+      "acceptedAfterMs": 2164,
+      "acceptedAfterSamples": 3,
+      "changedSquareIndices": [
+        11,
+        27
+      ],
+      "occupiedPiecesCount": 32,
+      "previousFingerprint": "0:black|1:black|2:black|3:black|4:black|5:black|6:black|7:black|8:black|9:black|10:black|11:black|13:black|14:black|15:black|20:black|35:white|36:white|48:white|49:white|50:white|53:white|54:white|55:white|56:white|57:white|58:white|59:white|60:white|61:white|62:white|63:white",
+      "nextFingerprint": "0:black|1:black|2:black|3:black|4:black|5:black|6:black|7:black|8:black|9:black|10:black|13:black|14:black|15:black|20:black|27:black|35:white|36:white|48:white|49:white|50:white|53:white|54:white|55:white|56:white|57:white|58:white|59:white|60:white|61:white|62:white|63:white"
+    }
+  ],
+  "interestingActions": [
+    {
+      "recordedAtMs": 1773977806776,
+      "type": "game/clockTapped",
+      "player": "white"
+    },
+    {
+      "recordedAtMs": 1773977813717,
+      "type": "game/clockTapped",
+      "player": "black"
+    },
+    {
+      "recordedAtMs": 1773977818436,
+      "type": "game/clockTapped",
+      "player": "white"
+    },
+    {
+      "recordedAtMs": 1773977822426,
+      "type": "game/clockTapped",
+      "player": "white"
+    },
+    {
+      "recordedAtMs": 1773977824169,
+      "type": "game/clockTapped",
+      "player": "black"
+    },
+    {
+      "recordedAtMs": 1773977824935,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 1,
+      "acceptedAfterMs": 2040,
+      "changedSquareIndices": [
+        12,
+        20,
+        35,
+        36,
+        51,
+        52
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773977831006,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 2,
+      "acceptedAfterMs": 2009,
+      "changedSquareIndices": [
+        11,
+        27
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773977831391,
+      "type": "game/clockTapped",
+      "player": "white"
+    },
+    {
+      "recordedAtMs": 1773977845494,
+      "type": "game/clockTapped",
+      "player": "black"
+    },
+    {
+      "recordedAtMs": 1773977847115,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 3,
+      "acceptedAfterMs": 2011,
+      "changedSquareIndices": [
+        42,
+        57
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773977855158,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 4,
+      "acceptedAfterMs": 2012,
+      "changedSquareIndices": [
+        10,
+        26
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773977856162,
+      "type": "game/clockTapped",
+      "player": "white"
+    },
+    {
+      "recordedAtMs": 1773977866452,
+      "type": "game/clockTapped",
+      "player": "black"
+    },
+    {
+      "recordedAtMs": 1773977868205,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 5,
+      "acceptedAfterMs": 2010,
+      "changedSquareIndices": [
+        45,
+        62
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773977871736,
+      "type": "game/clockTapped",
+      "player": "white"
+    },
+    {
+      "recordedAtMs": 1773977873236,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 6,
+      "acceptedAfterMs": 2004,
+      "changedSquareIndices": [
+        1,
+        18
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773977878262,
+      "type": "game/clockTapped",
+      "player": "black"
+    },
+    {
+      "recordedAtMs": 1773977885545,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 7,
+      "acceptedAfterMs": 2261,
+      "changedSquareIndices": [
+        8,
+        16,
+        25,
+        61
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773978136392,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "idle",
+      "reason": "awaiting-initial-setup",
+      "changedSquareIndices": [],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978164531,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "idle",
+      "reason": "awaiting-initial-setup-confirmation",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978166641,
+      "type": "game/moveCaptureArmedChanged",
+      "armed": true,
+      "activatedAtMs": 1773978166641
+    },
+    {
+      "recordedAtMs": 1773978166641,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "stable",
+      "reason": "seeded-stable-baseline",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978167722,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "stable",
+      "reason": "matches-last-accepted",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978175338,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        16,
+        32
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978176427,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "new-candidate-fingerprint",
+      "changedSquareIndices": [
+        16,
+        32,
+        40,
+        41,
+        42,
+        43,
+        48,
+        50,
+        56
+      ],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978177503,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        16,
+        25,
+        26,
+        28,
+        32,
+        33,
+        34,
+        35,
+        36,
+        40,
+        41,
+        48,
+        52
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978178571,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "new-candidate-fingerprint",
+      "changedSquareIndices": [
+        16,
+        32,
+        36,
+        52
+      ],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978179648,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        16,
+        36,
+        52
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978180722,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "candidate-stabilizing",
+      "changedSquareIndices": [
+        16,
+        36,
+        52
+      ],
+      "stableSampleCount": 2
+    },
+    {
+      "recordedAtMs": 1773978181806,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "capture_committed",
+      "reason": "move-completion-committed",
+      "changedSquareIndices": [
+        16,
+        36,
+        52
+      ],
+      "stableSampleCount": 3
+    },
+    {
+      "recordedAtMs": 1773978181810,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 1,
+      "acceptedAfterMs": 2158,
+      "changedSquareIndices": [
+        16,
+        36,
+        52
+      ],
+      "occupiedPiecesCount": 33
+    },
+    {
+      "recordedAtMs": 1773978182884,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        32
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978183961,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "stable",
+      "reason": "matches-last-accepted",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978186115,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        32
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978187196,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "candidate-stabilizing",
+      "changedSquareIndices": [
+        32
+      ],
+      "stableSampleCount": 2
+    },
+    {
+      "recordedAtMs": 1773978188281,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "stable",
+      "reason": "matches-last-accepted",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978193657,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        32
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978194726,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "stable",
+      "reason": "matches-last-accepted",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978195791,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        32
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978196869,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "new-candidate-fingerprint",
+      "changedSquareIndices": [
+        10,
+        16,
+        17,
+        18,
+        24
+      ],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978197948,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        12,
+        16,
+        17,
+        20,
+        25,
+        32
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978199020,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "new-candidate-fingerprint",
+      "changedSquareIndices": [
+        12,
+        20
+      ],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978200098,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        32
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978201177,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "new-candidate-fingerprint",
+      "changedSquareIndices": [
+        12,
+        16,
+        20
+      ],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978202261,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "candidate-stabilizing",
+      "changedSquareIndices": [
+        12,
+        16,
+        20
+      ],
+      "stableSampleCount": 2
+    },
+    {
+      "recordedAtMs": 1773978203338,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        40,
+        41,
+        42,
+        43,
+        48,
+        50
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978204426,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "new-candidate-fingerprint",
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        32,
+        33,
+        35,
+        40,
+        51
+      ],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978205510,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        35,
+        51
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978206589,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "candidate-stabilizing",
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        35,
+        51
+      ],
+      "stableSampleCount": 2
+    },
+    {
+      "recordedAtMs": 1773978207653,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "capture_committed",
+      "reason": "move-completion-committed",
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        35,
+        51
+      ],
+      "stableSampleCount": 3
+    },
+    {
+      "recordedAtMs": 1773978207657,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 2,
+      "acceptedAfterMs": 2143,
+      "changedSquareIndices": [
+        12,
+        16,
+        20,
+        35,
+        51
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773978208729,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "stable",
+      "reason": "matches-last-accepted",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978211945,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        16,
+        17,
+        18,
+        24
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978213020,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "new-candidate-fingerprint",
+      "changedSquareIndices": [
+        11,
+        16,
+        27,
+        32
+      ],
+      "stableSampleCount": 1
+    },
+    {
+      "recordedAtMs": 1773978214091,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "transitioning",
+      "reason": "transition-detected",
+      "changedSquareIndices": [
+        11,
+        27
+      ],
+      "stableSampleCount": 0
+    },
+    {
+      "recordedAtMs": 1773978215171,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "candidate_stable",
+      "reason": "candidate-stabilizing",
+      "changedSquareIndices": [
+        11,
+        27
+      ],
+      "stableSampleCount": 2
+    },
+    {
+      "recordedAtMs": 1773978216256,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "capture_committed",
+      "reason": "move-completion-committed",
+      "changedSquareIndices": [
+        11,
+        27
+      ],
+      "stableSampleCount": 3
+    },
+    {
+      "recordedAtMs": 1773978216259,
+      "type": "game/moveCompletionCommitted",
+      "moveIndex": 3,
+      "acceptedAfterMs": 2164,
+      "changedSquareIndices": [
+        11,
+        27
+      ],
+      "occupiedPiecesCount": 32
+    },
+    {
+      "recordedAtMs": 1773978217344,
+      "type": "game/moveCaptureStateUpdated",
+      "state": "stable",
+      "reason": "matches-last-accepted",
+      "changedSquareIndices": [],
+      "stableSampleCount": 1
+    }
+  ]
+}
