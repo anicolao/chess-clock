@@ -2,13 +2,15 @@
 #define HTTP_SERVER_H
 
 #include <stdbool.h>
+#include "provisioning.h"
 
 /**
- * Start the HTTP server after provisioning completes.
- * Registers /api/status and /capture endpoints.
- * Returns true on success, false on failure.
+ * Start the HTTP server.
+ * If prov_ctx is non-NULL, registers provisioning endpoints (/, /provision).
+ * Always registers /api/status and /capture.
+ * Pass NULL after provisioning to restart in normal mode.
  */
-bool http_server_start(void);
+bool http_server_start(prov_ctx_t *prov_ctx);
 
 /**
  * Stop the HTTP server.

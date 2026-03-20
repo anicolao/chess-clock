@@ -28,7 +28,8 @@ static camera_frame_t hal_frame;
 static camera_fb_t *current_fb = NULL;
 static camera_format_t current_format = CAMERA_FMT_GRAYSCALE;
 
-bool camera_hal_init(void) {
+/* Shared pin config used by both init and set_format */
+static camera_config_t make_camera_config(pixformat_t pf, framesize_t fs, int fb_count) {
     camera_config_t config = {
         .pin_pwdn = CAM_PIN_PWDN,
         .pin_reset = CAM_PIN_RESET,
@@ -49,13 +50,19 @@ bool camera_hal_init(void) {
         .xclk_freq_hz = 10000000,            /* 10 MHz — stable for XIAO ESP32S3 */
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
-        .pixel_format = PIXFORMAT_GRAYSCALE,  /* Start in grayscale for QR provisioning */
-        .frame_size = FRAMESIZE_QVGA,         /* 320x240 — sufficient for QR decode */
+        .pixel_format = pf,
+        .frame_size = fs,
         .jpeg_quality = 12,
-        .fb_count = 1,                        /* Single buffer for grayscale */
+        .fb_count = fb_count,
         .fb_location = CAMERA_FB_IN_PSRAM,
-        .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
+        .grab_mode = (fb_count > 1) ? CAMERA_GRAB_LATEST : CAMERA_GRAB_WHEN_EMPTY,
     };
+    return config;
+}
+
+bool camera_hal_init(void) {
+    camera_config_t config = make_camera_config(
+        PIXFORMAT_GRAYSCALE, FRAMESIZE_VGA, 1);
 
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
@@ -63,8 +70,19 @@ bool camera_hal_init(void) {
         return false;
     }
 
+    /* Neutral sensor settings — auto-exposure handles most conditions */
+    sensor_t *s = esp_camera_sensor_get();
+    if (s) {
+        s->set_contrast(s, 0);       /* Neutral contrast */
+        s->set_brightness(s, 0);     /* Neutral brightness */
+        s->set_whitebal(s, 1);       /* Auto white balance on */
+        s->set_gain_ctrl(s, 1);      /* Auto gain on */
+        s->set_exposure_ctrl(s, 1);  /* Auto exposure on */
+        s->set_aec2(s, 1);           /* DSP auto exposure on */
+    }
+
     current_format = CAMERA_FMT_GRAYSCALE;
-    ESP_LOGI(TAG, "OV2640 initialized (QVGA, grayscale)");
+    ESP_LOGI(TAG, "OV2640 initialized (VGA, grayscale)");
     return true;
 }
 
@@ -97,19 +115,40 @@ void camera_hal_return_picture(camera_frame_t *frame) {
 }
 
 bool camera_hal_set_format(camera_format_t fmt) {
-    sensor_t *s = esp_camera_sensor_get();
-    if (!s) return false;
+    if (fmt == current_format) return true;
 
-    if (fmt == CAMERA_FMT_JPEG) {
-        s->set_pixformat(s, PIXFORMAT_JPEG);
-        s->set_framesize(s, FRAMESIZE_SVGA);  /* 800x600 for HTTP serving */
-        current_format = CAMERA_FMT_JPEG;
-        ESP_LOGI(TAG, "Switched to JPEG SVGA output");
-    } else {
-        s->set_pixformat(s, PIXFORMAT_GRAYSCALE);
-        s->set_framesize(s, FRAMESIZE_QVGA);  /* 320x240 for QR decode */
-        current_format = CAMERA_FMT_GRAYSCALE;
-        ESP_LOGI(TAG, "Switched to grayscale QVGA output");
+    /* Must deinit + reinit camera to reallocate DMA buffers for new format */
+    if (current_fb) {
+        esp_camera_fb_return(current_fb);
+        current_fb = NULL;
     }
+    esp_camera_deinit();
+
+    pixformat_t pf;
+    framesize_t fs;
+    int fb_count;
+    const char *desc;
+    if (fmt == CAMERA_FMT_JPEG) {
+        pf = PIXFORMAT_JPEG;
+        fs = FRAMESIZE_SVGA;   /* 800x600 for HTTP serving */
+        fb_count = 2;          /* Double-buffer needed for JPEG DMA pipeline */
+        desc = "JPEG SVGA";
+    } else {
+        pf = PIXFORMAT_GRAYSCALE;
+        fs = FRAMESIZE_VGA;    /* 640x480 for QR decode */
+        fb_count = 1;
+        desc = "grayscale VGA";
+    }
+
+    camera_config_t config = make_camera_config(pf, fs, fb_count);
+
+    esp_err_t err = esp_camera_init(&config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Camera reinit failed: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    current_format = fmt;
+    ESP_LOGI(TAG, "Switched to %s output", desc);
     return true;
 }
