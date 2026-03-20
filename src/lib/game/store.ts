@@ -61,6 +61,8 @@ function createInitialState(): GameState {
 		connectionStatus: 'offline',
 		cameraUrl: DEFAULT_CAMERA_URL,
 		layoutMode: 'opposing',
+		moveCaptureArmed: false,
+		moveCaptureActivatedAtMs: null,
 		moveCaptureDiagnostics: createInitialMoveCaptureDiagnostics(),
 		moveCaptures: [],
 		lastLogReportAtMs: null
@@ -124,6 +126,16 @@ const gameSlice = createSlice({
 		},
 		layoutModeToggled(state) {
 			state.layoutMode = state.layoutMode === 'opposing' ? 'edge' : 'opposing';
+		},
+		moveCaptureArmedChanged(
+			state,
+			action: PayloadAction<{
+				armed: boolean;
+				activatedAtMs: number | null;
+			}>
+		) {
+			state.moveCaptureArmed = action.payload.armed;
+			state.moveCaptureActivatedAtMs = action.payload.activatedAtMs;
 		},
 		clockTapped(
 			state,
@@ -196,6 +208,7 @@ const PERSISTED_ACTION_TYPES = new Set<string>([
 	gameSlice.actions.configureFromQuery.type,
 	gameSlice.actions.connectionStatusChanged.type,
 	gameSlice.actions.layoutModeToggled.type,
+	gameSlice.actions.moveCaptureArmedChanged.type,
 	gameSlice.actions.clockTapped.type,
 	gameSlice.actions.moveCaptureStateUpdated.type,
 	gameSlice.actions.moveCompletionCommitted.type,
@@ -221,9 +234,7 @@ const actionLogMiddleware: Middleware = (api) => (next) => (action) => {
 			const nextLogKey = JSON.stringify({
 				gameId: state.game.sessionId,
 				state: payload?.state ?? null,
-				stableSampleCount: payload?.stableSampleCount ?? null,
-				reason: payload?.reason ?? null,
-				changedSquareIndices: payload?.changedSquareIndices ?? []
+				reason: payload?.reason ?? null
 			});
 			if (nextLogKey === lastMoveCaptureStateLogKey) {
 				return result;
@@ -252,6 +263,7 @@ export const {
 	configureFromQuery,
 	connectionStatusChanged,
 	layoutModeToggled,
+	moveCaptureArmedChanged,
 	clockTapped,
 	tickElapsed,
 	moveCaptureStateUpdated,

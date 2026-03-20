@@ -51,6 +51,53 @@ function buildFingerprint(occupiedPieces: OccupiedPiece[]) {
 		.join('|');
 }
 
+export function buildOccupiedPiecesFingerprint(occupiedPieces: OccupiedPiece[]) {
+	return buildFingerprint(occupiedPieces);
+}
+
+export function looksLikeInitialBoardSetup(occupiedPieces: OccupiedPiece[]) {
+	if (occupiedPieces.length !== 32) {
+		return false;
+	}
+
+	const whitePieceCount = occupiedPieces.filter((piece) => piece.color === 'white').length;
+	const blackPieceCount = occupiedPieces.length - whitePieceCount;
+	if (whitePieceCount !== 16 || blackPieceCount !== 16) {
+		return false;
+	}
+
+	const rowCounts: Array<Record<'white' | 'black', number>> = Array.from(
+		{ length: 8 },
+		() => ({ white: 0, black: 0 })
+	);
+	const colCounts: Array<Record<'white' | 'black', number>> = Array.from(
+		{ length: 8 },
+		() => ({ white: 0, black: 0 })
+	);
+
+	for (const piece of occupiedPieces) {
+		const row = Math.floor(piece.index / 8);
+		const col = piece.index % 8;
+		rowCounts[row][piece.color] += 1;
+		colCounts[col][piece.color] += 1;
+	}
+
+	const hasColoredEdgeBands = (bands: Array<{ white: number; black: number }>) => {
+		const leadingWhite = bands[0].white + bands[1].white;
+		const leadingBlack = bands[0].black + bands[1].black;
+		const trailingWhite = bands[6].white + bands[7].white;
+		const trailingBlack = bands[6].black + bands[7].black;
+		const middleOccupancy = bands.slice(2, 6).reduce((sum, band) => sum + band.white + band.black, 0);
+
+		return middleOccupancy === 0 && (
+			(leadingWhite === 16 && trailingBlack === 16 && leadingBlack === 0 && trailingWhite === 0)
+			|| (leadingBlack === 16 && trailingWhite === 16 && leadingWhite === 0 && trailingBlack === 0)
+		);
+	};
+
+	return hasColoredEdgeBands(rowCounts) || hasColoredEdgeBands(colCounts);
+}
+
 function diffChangedSquares(previousFingerprint: string, nextFingerprint: string) {
 	const previousMap = new Map<number, string>();
 	const nextMap = new Map<number, string>();
