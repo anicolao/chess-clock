@@ -69,6 +69,8 @@
 	let initialSetupSampleCount = 0;
 	let initialSetupSinceMs = 0;
 	let moveToneAudioContext: AudioContext | null = null;
+	let moveTonePrimed = $state(false);
+	let moveToneUnavailable = $state(false);
 
 	const moveCaptureEngine = new MoveCaptureEngine();
 	const INITIAL_SETUP_SAMPLE_COUNT = 3;
@@ -108,6 +110,7 @@
 		mounted = true;
 		if (typeof window !== 'undefined') {
 			window.addEventListener('pointerdown', primeMoveToneContext, { passive: true });
+			window.addEventListener('keydown', primeMoveToneContext, { passive: true });
 		}
 		calibration = loadBoardCalibration();
 		cameraMode = calibration?.cameraMode ?? 'browser';
@@ -137,6 +140,7 @@
 		mounted = false;
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('pointerdown', primeMoveToneContext);
+			window.removeEventListener('keydown', primeMoveToneContext);
 		}
 		clearScheduledProcessing();
 		stopBrowserCamera();
@@ -170,11 +174,15 @@
 	}
 
 	function getMoveToneAudioContext() {
+		if (typeof window === 'undefined') {
+			return null;
+		}
 		if (moveToneAudioContext) return moveToneAudioContext;
 
 		const AudioContextCtor = window.AudioContext
 			|| (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 		if (!AudioContextCtor) {
+			moveToneUnavailable = true;
 			return null;
 		}
 
@@ -182,36 +190,81 @@
 		return moveToneAudioContext;
 	}
 
-	function primeMoveToneContext() {
+	function playToneSweep(
+		context: AudioContext,
+		{
+			startHz,
+			endHz,
+			durationMs,
+			peakGain
+		}: {
+			startHz: number;
+			endHz: number;
+			durationMs: number;
+			peakGain: number;
+		}
+	) {
+		const oscillator = context.createOscillator();
+		const gain = context.createGain();
+		const now = context.currentTime;
+		const durationSeconds = durationMs / 1000;
+
+		oscillator.type = 'sine';
+		oscillator.frequency.setValueAtTime(startHz, now);
+		oscillator.frequency.exponentialRampToValueAtTime(endHz, now + Math.max(0.05, durationSeconds * 0.72));
+
+		gain.gain.setValueAtTime(0.0001, now);
+		gain.gain.exponentialRampToValueAtTime(peakGain, now + Math.min(0.03, durationSeconds * 0.18));
+		gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSeconds);
+
+		oscillator.connect(gain);
+		gain.connect(context.destination);
+		oscillator.start(now);
+		oscillator.stop(now + durationSeconds + 0.02);
+	}
+
+	async function primeMoveToneContext() {
 		const context = getMoveToneAudioContext();
-		if (!context || context.state !== 'suspended') return;
-		void context.resume().catch(() => {});
+		if (!context) return;
+		if (context.state === 'suspended') {
+			try {
+				await context.resume();
+			} catch {
+				return;
+			}
+		}
+		if (moveTonePrimed) return;
+		moveTonePrimed = true;
+		playToneSweep(context, {
+			startHz: 523.25,
+			endHz: 659.25,
+			durationMs: 140,
+			peakGain: 0.042
+		});
 	}
 
 	function playMoveRecognizedTone() {
 		const context = getMoveToneAudioContext();
 		if (!context) return;
 		if (context.state === 'suspended') {
-			void context.resume().catch(() => {});
+			void context.resume()
+				.then(() => {
+					playToneSweep(context, {
+						startHz: 659.25,
+						endHz: 783.99,
+						durationMs: 240,
+						peakGain: 0.05
+					});
+				})
+				.catch(() => {});
 			return;
 		}
-
-		const oscillator = context.createOscillator();
-		const gain = context.createGain();
-		const now = context.currentTime;
-
-		oscillator.type = 'sine';
-		oscillator.frequency.setValueAtTime(659.25, now);
-		oscillator.frequency.exponentialRampToValueAtTime(783.99, now + 0.16);
-
-		gain.gain.setValueAtTime(0.0001, now);
-		gain.gain.exponentialRampToValueAtTime(0.03, now + 0.025);
-		gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-
-		oscillator.connect(gain);
-		gain.connect(context.destination);
-		oscillator.start(now);
-		oscillator.stop(now + 0.24);
+		playToneSweep(context, {
+			startHz: 659.25,
+			endHz: 783.99,
+			durationMs: 240,
+			peakGain: 0.05
+		});
 	}
 
 	async function startBrowserCamera() {
