@@ -5,8 +5,20 @@
 #include <stddef.h>
 
 /**
+ * Start WiFi in AP mode for provisioning.
+ * Creates an open AP named "ChessCam-XXXX" (last 2 bytes of MAC).
+ * Initializes NVS and WiFi if not already done.
+ */
+bool wifi_prov_ap_start(void);
+
+/**
+ * Stop AP mode and deinit WiFi.
+ */
+void wifi_prov_ap_stop(void);
+
+/**
  * Real WiFi STA connection callback for provisioning.
- * Initializes WiFi in station mode and connects to the given AP.
+ * Stops AP mode if running, then connects to the given AP.
  * Blocks until connected or timeout (10s).
  */
 bool wifi_prov_connect(const char *ssid, const char *password);

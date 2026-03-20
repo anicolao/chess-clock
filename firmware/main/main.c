@@ -102,7 +102,14 @@ static bool mdns_announce_mock(void) {
 static void run_hardware_self_test(void) {
     printf("=== Hardware Integration Self-Test ===\n");
 
-    /* Test 1: NVS save/load roundtrip */
+    /* Test 1: NVS save/load roundtrip — save current creds first, restore after */
+    char orig_ssid[64] = {0};
+    char orig_pass[64] = {0};
+    char orig_token[64] = {0};
+    bool had_creds = wifi_prov_load_credentials(orig_ssid, sizeof(orig_ssid),
+                                                 orig_pass, sizeof(orig_pass),
+                                                 orig_token, sizeof(orig_token));
+
     printf("TEST NVS: Saving test credentials...\n");
     bool save_ok = wifi_prov_save_credentials("TestSSID", "TestPass123", "tok_selftest");
     if (save_ok) {
@@ -124,6 +131,12 @@ static void run_hardware_self_test(void) {
         printf("TEST NVS: Load roundtrip OK (ssid=%s, token=%s)\n", loaded_ssid, loaded_token);
     } else {
         printf("TEST NVS: Load roundtrip FAILED (ssid=%s, token=%s)\n", loaded_ssid, loaded_token);
+    }
+
+    /* Restore original credentials */
+    if (had_creds && strlen(orig_ssid) > 0) {
+        wifi_prov_save_credentials(orig_ssid, orig_pass, orig_token);
+        printf("TEST NVS: Restored original credentials (ssid=%s)\n", orig_ssid);
     }
 
 #if CONFIG_ETH_USE_OPENETH
@@ -216,43 +229,95 @@ void app_main(void)
         return;
     }
 
+    /* Check NVS for saved credentials — skip provisioning if found */
+#ifdef CONFIG_USE_REAL_WIFI_PROV
+    {
+        char saved_ssid[64] = {0};
+        char saved_pass[64] = {0};
+        char saved_token[64] = {0};
+        if (wifi_prov_load_credentials(saved_ssid, sizeof(saved_ssid),
+                                        saved_pass, sizeof(saved_pass),
+                                        saved_token, sizeof(saved_token))
+            && strlen(saved_ssid) > 0) {
+            printf("Found saved credentials: SSID=%s pass_len=%d token=%s\n",
+                   saved_ssid, (int)strlen(saved_pass), saved_token);
+            strncpy(prov_ctx.ssid, saved_ssid, sizeof(prov_ctx.ssid) - 1);
+            strncpy(prov_ctx.password, saved_pass, sizeof(prov_ctx.password) - 1);
+            strncpy(prov_ctx.token, saved_token, sizeof(prov_ctx.token) - 1);
+            prov_ctx.state = PROV_STATE_PROVISIONED;
+        }
+    }
+#endif
+
+    if (prov_get_state(&prov_ctx) != PROV_STATE_PROVISIONED) {
+        /* Start AP mode + HTTP server for web-based provisioning.
+         * Camera stays in grayscale — /capture serves BMP so users can check focus.
+         * QR scanning still runs in parallel as a bonus path. */
+#ifdef CONFIG_USE_REAL_WIFI_PROV
+        if (!wifi_prov_ap_start()) {
+            printf("Failed to start AP mode\n");
+        }
+#endif
+        if (!http_server_start(&prov_ctx)) {
+            printf("Failed to start HTTP server\n");
+        } else {
+            server_started = true;
+            printf("Browse to http://192.168.4.1/ to configure WiFi\n");
+        }
+    }
+
     while (1) {
         if (prov_get_state(&prov_ctx) != PROV_STATE_PROVISIONED) {
-            printf("Requesting camera frame...\n");
+            /* Try QR scanning in parallel with web provisioning */
             camera_frame_t *frame = camera_hal_take_picture();
             if (frame) {
-                printf("Frame received: %dx%d, len=%zu\n", frame->width, frame->height, frame->len);
                 bool success = prov_decode_qr_image(&prov_ctx, frame->buf, frame->width, frame->height);
                 if (success) {
                     printf("QR code decoded successfully!\n");
-                    printf("Transitioned to PROV_STATE_PROVISIONED\n");
-                } else {
-                    printf("Failed to decode QR code. State: %d\n", prov_get_state(&prov_ctx));
                 }
                 camera_hal_return_picture(frame);
-            } else {
-                printf("Failed to acquire frame\n");
             }
         } else {
-            if (!server_started) {
-                printf("Device is provisioned. Starting HTTP server...\n");
-                /* Switch camera to JPEG for HTTP serving */
+            if (!self_test_done) {
+                printf("Device provisioned! SSID=%s\n", prov_ctx.ssid);
+
+                /* Stop the provisioning HTTP server if it was running */
+                if (server_started) {
+                    http_server_stop();
+                    server_started = false;
+                }
+
+                /* Connect to WiFi, save credentials, announce mDNS */
+#ifdef CONFIG_USE_REAL_WIFI_PROV
+                printf("Connecting to WiFi...\n");
+                if (wifi_prov_connect(prov_ctx.ssid, prov_ctx.password)) {
+                    printf("WiFi connected!\n");
+                    wifi_prov_save_credentials(prov_ctx.ssid, prov_ctx.password, prov_ctx.token);
+
+                    /* Brief delay for netif to settle before mDNS */
+                    vTaskDelay(500 / portTICK_PERIOD_MS);
+                    wifi_prov_mdns_announce();
+                } else {
+                    printf("WiFi connection failed. Credentials saved anyway.\n");
+                    wifi_prov_save_credentials(prov_ctx.ssid, prov_ctx.password, prov_ctx.token);
+                }
+#endif
+
+                /* Switch camera to JPEG for normal operation */
                 camera_hal_set_format(CAMERA_FMT_JPEG);
-                if (http_server_start()) {
+
+                /* Start HTTP server in normal mode (no provisioning form) */
+                if (http_server_start(NULL)) {
                     server_started = true;
-                    /* Verify camera-to-HTTP pipeline is wired correctly */
                     camera_frame_t *test_frame = camera_hal_take_picture();
                     if (test_frame) {
-                        printf("Capture endpoint ready: %dx%d, %zu bytes available\n",
+                        printf("Capture endpoint ready: %dx%d, %zu bytes\n",
                                test_frame->width, test_frame->height, test_frame->len);
                         camera_hal_return_picture(test_frame);
                     }
-                    /* Run hardware integration self-tests */
-                    run_hardware_self_test();
-                    self_test_done = true;
-                } else {
-                    printf("Failed to start HTTP server, will retry...\n");
                 }
+                run_hardware_self_test();
+                self_test_done = true;
             }
         }
         vTaskDelay(2000 / portTICK_PERIOD_MS);
