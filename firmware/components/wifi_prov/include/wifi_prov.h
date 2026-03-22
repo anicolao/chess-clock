@@ -17,6 +17,12 @@ bool wifi_prov_ap_start(void);
 void wifi_prov_ap_stop(void);
 
 /**
+ * Stop STA mode and deinit WiFi.
+ * Call after a failed wifi_prov_connect() before restarting AP mode.
+ */
+void wifi_prov_sta_stop(void);
+
+/**
  * Real WiFi STA connection callback for provisioning.
  * Stops AP mode if running, then connects to the given AP.
  * Blocks until connected or timeout (10s).

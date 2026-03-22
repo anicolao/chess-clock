@@ -298,8 +298,21 @@ void app_main(void)
                     vTaskDelay(500 / portTICK_PERIOD_MS);
                     wifi_prov_mdns_announce();
                 } else {
-                    printf("WiFi connection failed. Credentials saved anyway.\n");
+                    printf("WiFi connection failed — falling back to AP provisioning mode.\n");
                     wifi_prov_save_credentials(prov_ctx.ssid, prov_ctx.password, prov_ctx.token);
+
+                    /* Tear down failed STA, restart AP + provisioning server */
+                    wifi_prov_sta_stop();
+                    prov_ctx.state = PROV_STATE_UNPROVISIONED;
+                    if (!wifi_prov_ap_start()) {
+                        printf("Failed to restart AP mode\n");
+                    }
+                    camera_hal_set_format(CAMERA_FMT_JPEG);
+                    if (http_server_start(&prov_ctx)) {
+                        server_started = true;
+                        printf("Browse to http://192.168.4.1/ to re-configure WiFi\n");
+                    }
+                    continue;
                 }
 #endif
 

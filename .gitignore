@@ -30,3 +30,6 @@ firmware/build_host/
 firmware/managed_components/
 firmware/__pycache__/
 firmware/.venv/
+
+# Claude Code
+.claude/

@@ -80,6 +80,19 @@ void wifi_prov_ap_stop(void) {
     ESP_LOGI(TAG, "AP mode stopped");
 }
 
+static esp_netif_t *s_sta_netif = NULL;
+
+void wifi_prov_sta_stop(void) {
+    esp_wifi_stop();
+    if (s_sta_netif) {
+        esp_netif_destroy_default_wifi(s_sta_netif);
+        s_sta_netif = NULL;
+    }
+    esp_wifi_deinit();
+    s_wifi_initialized = false;
+    ESP_LOGI(TAG, "STA mode stopped");
+}
+
 static int s_retry_count = 0;
 #define WIFI_MAX_RETRY 3
 
@@ -120,7 +133,7 @@ bool wifi_prov_connect(const char *ssid, const char *password) {
     s_wifi_event_group = xEventGroupCreate();
     s_retry_count = 0;
 
-    esp_netif_create_default_wifi_sta();
+    s_sta_netif = esp_netif_create_default_wifi_sta();
 
     if (!s_wifi_initialized) {
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
