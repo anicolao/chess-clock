@@ -13,8 +13,10 @@
     "test:e2e": "playwright test --workers=1",
     "test:cv": "node tests/chessboard_localization.test.js",
     "test:occupancy": "node tests/chessboard_occupancy.test.js",
+    "test:stream-changes": "node tests/stream_state_changes.test.js",
     "convert:game-logs": "node scripts/convert_game_log_reports.mjs",
-    "test:game-logs": "vitest run tests/game_log_cases.test.ts"
+    "test:game-logs": "vitest run tests/game_log_cases.test.ts",
+    "report:stream-changes": "node scripts/detect_stream_state_changes.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.57.0",
