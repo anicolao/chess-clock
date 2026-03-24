@@ -30,7 +30,7 @@ async function main() {
 		markdown += '|---|---|---|---|---|---|---|---|\n';
 
 		for (const event of result.events) {
-			markdown += `| ${event.eventIndex} | ![](${toPosixPath(path.relative('tests', event.beforeRawPath))}) | ![](${toPosixPath(path.relative('tests', event.beforeWarpPath))}) | ![](${toPosixPath(path.relative('tests', event.afterRawPath))}) | ![](${toPosixPath(path.relative('tests', event.afterWarpPath))}) | ![](${toPosixPath(path.relative('tests', event.triggerDiffPath))}) | ![](${toPosixPath(path.relative('tests', event.peakDiffPath))}) | beforeQuiet=${event.beforeFrameName} [${event.beforeQuietStartFrameIndex}-${event.beforeFrameIndex}], motion=${event.triggerFrameName}-${event.motionEndFrameName}, peak=${event.peakFrameName}, afterQuiet=${event.afterFrameName} [${event.afterQuietStartFrameIndex}-${event.afterFrameIndex}], peakScore=${event.peakScore.toFixed(2)} |\n`;
+			markdown += `| ${event.eventIndex} | ![](${toPosixPath(path.relative('tests', event.beforeRawPath))}) | ![](${toPosixPath(path.relative('tests', event.beforeWarpPath))}) | ![](${toPosixPath(path.relative('tests', event.afterRawPath))}) | ![](${toPosixPath(path.relative('tests', event.afterWarpPath))}) | ![](${toPosixPath(path.relative('tests', event.triggerDiffPath))}) | ![](${toPosixPath(path.relative('tests', event.peakDiffPath))}) | beforeQuiet=${event.beforeFrameName} [${event.beforeQuietStartFrameIndex}-${event.beforeFrameIndex}], motion=${event.triggerFrameName}-${event.motionEndFrameName}, peak=${event.peakFrameName}, afterQuiet=${event.afterFrameName} [${event.afterQuietStartFrameIndex}-${event.afterFrameIndex}], peakScore=${event.peakScore.toFixed(2)}, peakAnchorDrift=${event.peakAnchorDriftScore.toFixed(2)} |\n`;
 		}
 
 		markdown += '\n';

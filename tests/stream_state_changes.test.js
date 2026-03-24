@@ -1,3 +1,4 @@
+// @ts-nocheck
 import assert from 'node:assert/strict';
 
 import {
@@ -40,14 +41,14 @@ for (const result of results) {
 
 		for (let frameIndex = event.beforeQuietStartFrameIndex; frameIndex <= event.beforeFrameIndex; frameIndex += 1) {
 			assert.ok(
-				result.frameSummaries[frameIndex].diffScore <= result.thresholds.quiet + 1e-9,
+				result.frameSummaries[frameIndex].stabilityScore <= result.thresholds.quiet + 1e-9,
 				`Expected quiet before window in ${result.streamName} event ${event.eventIndex}`
 			);
 		}
 
 		for (let frameIndex = event.afterQuietStartFrameIndex; frameIndex <= event.afterFrameIndex; frameIndex += 1) {
 			assert.ok(
-				result.frameSummaries[frameIndex].diffScore <= result.thresholds.quiet + 1e-9,
+				result.frameSummaries[frameIndex].stabilityScore <= result.thresholds.quiet + 1e-9,
 				`Expected quiet after window in ${result.streamName} event ${event.eventIndex}`
 			);
 		}
@@ -56,8 +57,9 @@ for (const result of results) {
 			.slice(event.triggerFrameIndex, event.motionEndFrameIndex + 1)
 			.map((frame) => frame.diffScore);
 		assert.ok(
-			motionScores.some((score) => score >= result.thresholds.motion),
-			`Expected significant motion in ${result.streamName} event ${event.eventIndex}`
+			motionScores.some((score) => score >= result.thresholds.settle) ||
+				event.peakAnchorDriftScore >= result.thresholds.motion,
+			`Expected sustained departure from quiet in ${result.streamName} event ${event.eventIndex}`
 		);
 		previousAfterFrameIndex = event.afterFrameIndex;
 	}

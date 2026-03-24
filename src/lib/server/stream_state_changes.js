@@ -79,7 +79,39 @@ function renderDiffImage(previousGray, currentGray) {
 	return colored;
 }
 
-function detectChangeEvents(frameSummaries) {
+function buildQuietSpan(frameSummaries, quietThreshold, startFrameIndex, endFrameIndex) {
+	let bestFrameIndex = startFrameIndex;
+	let bestScore = Number.POSITIVE_INFINITY;
+
+	for (let frameIndex = startFrameIndex; frameIndex <= endFrameIndex; frameIndex += 1) {
+		const summary = frameSummaries[frameIndex];
+		const stabilityScore = summary.stabilityScore;
+		const qualifies = Number.isFinite(stabilityScore) && stabilityScore <= quietThreshold;
+		const candidateScore = qualifies ? stabilityScore : Number.POSITIVE_INFINITY;
+
+		if (
+			candidateScore < bestScore - 1e-9 ||
+			(Math.abs(candidateScore - bestScore) <= 1e-9 && frameIndex > bestFrameIndex)
+		) {
+			bestFrameIndex = frameIndex;
+			bestScore = candidateScore;
+		}
+	}
+
+	if (!Number.isFinite(bestScore)) {
+		bestFrameIndex = endFrameIndex;
+		bestScore = frameSummaries[endFrameIndex]?.stabilityScore ?? Number.POSITIVE_INFINITY;
+	}
+
+	return {
+		startFrameIndex,
+		endFrameIndex,
+		bestFrameIndex,
+		bestScore
+	};
+}
+
+function detectChangeEvents(frameSummaries, warpedGrayFrames) {
 	const diffScores = frameSummaries
 		.map((frame) => frame.diffScore)
 		.filter((score) => Number.isFinite(score));
@@ -93,51 +125,88 @@ function detectChangeEvents(frameSummaries) {
 
 	const events = [];
 	let state = 'searching_quiet';
-	let quietRunStartFrameIndex = 0;
-	let quietRunLength = 1;
-	let quietAnchorFrameIndex = 0;
+	let quietRunStartFrameIndex = null;
+	let quietRunLength = 0;
+	let confirmedQuietSpan = null;
 	let activeEvent = null;
-	let settlingRunStartFrameIndex = null;
-	let settlingQuietCount = 0;
+
+	function startQuietRun(frameIndex) {
+		quietRunStartFrameIndex = frameIndex;
+		quietRunLength = 1;
+	}
+
+	function extendQuietRun() {
+		quietRunLength += 1;
+	}
+
+	function clearQuietRun() {
+		quietRunStartFrameIndex = null;
+		quietRunLength = 0;
+	}
+
+	function currentQuietRunEnd(frameIndex) {
+		return quietRunStartFrameIndex == null ? null : frameIndex;
+	}
+
+	function promoteQuietRun(frameIndex) {
+		if (quietRunStartFrameIndex == null || quietRunLength < quietFrames) return;
+		confirmedQuietSpan = buildQuietSpan(
+			frameSummaries,
+			quietThreshold,
+			quietRunStartFrameIndex,
+			currentQuietRunEnd(frameIndex)
+		);
+	}
 
 	for (let frameIndex = 1; frameIndex < frameSummaries.length; frameIndex += 1) {
 		const summary = frameSummaries[frameIndex];
 		const score = summary.diffScore;
-		const isQuiet = score <= quietThreshold;
-		const isMotion = score >= motionThreshold;
-
-		if (isQuiet) {
-			if (quietRunLength === 0) {
-				quietRunStartFrameIndex = frameIndex - 1;
-			}
-			quietRunLength += 1;
-			if (quietRunLength >= quietFrames) {
-				quietAnchorFrameIndex = frameIndex;
-			}
-		} else {
-			quietRunStartFrameIndex = frameIndex;
-			quietRunLength = 0;
+		const isFrameQuiet = summary.stabilityScore <= quietThreshold;
+		if (isFrameQuiet) {
+			if (quietRunStartFrameIndex == null) startQuietRun(frameIndex);
+			else extendQuietRun();
+			promoteQuietRun(frameIndex);
+		} else if (quietRunStartFrameIndex != null) {
+			promoteQuietRun(frameIndex - 1);
+			clearQuietRun();
 		}
 
+		const anchorDriftScore = confirmedQuietSpan
+			? computeFrameDiffScore(
+				warpedGrayFrames[confirmedQuietSpan.bestFrameIndex],
+				warpedGrayFrames[frameIndex]
+			)
+			: 0;
+		const motionDetected = (
+			score >= motionThreshold ||
+			anchorDriftScore >= motionThreshold ||
+			(score >= settleThreshold && anchorDriftScore >= settleThreshold)
+		);
+		const resumedLocalMotion = (
+			score >= motionThreshold ||
+			summary.stabilityScore >= motionThreshold
+		);
+
 		if (state === 'searching_quiet') {
-			if (quietRunLength >= quietFrames) {
+			if (confirmedQuietSpan) {
 				state = 'quiet_ready';
 			}
 			continue;
 		}
 
 		if (state === 'quiet_ready') {
-			if (isMotion) {
+			if (motionDetected && confirmedQuietSpan) {
 				activeEvent = {
-					beforeQuietStartFrameIndex: Math.max(0, quietAnchorFrameIndex - quietFrames + 1),
-					beforeFrameIndex: quietAnchorFrameIndex,
+					beforeQuietStartFrameIndex: confirmedQuietSpan.startFrameIndex,
+					beforeFrameIndex: confirmedQuietSpan.bestFrameIndex,
 					triggerFrameIndex: frameIndex,
+					triggerAnchorDriftScore: anchorDriftScore,
 					peakFrameIndex: frameIndex,
 					peakScore: score,
+					peakAnchorDriftScore: anchorDriftScore,
 					motionEndFrameIndex: frameIndex
 				};
-				settlingRunStartFrameIndex = null;
-				settlingQuietCount = 0;
+				clearQuietRun();
 				state = 'in_motion';
 			}
 			continue;
@@ -149,9 +218,12 @@ function detectChangeEvents(frameSummaries) {
 				activeEvent.peakScore = score;
 				activeEvent.peakFrameIndex = frameIndex;
 			}
+			if (anchorDriftScore > activeEvent.peakAnchorDriftScore) {
+				activeEvent.peakAnchorDriftScore = anchorDriftScore;
+			}
 			if (score <= settleThreshold) {
-				settlingRunStartFrameIndex = frameIndex;
-				settlingQuietCount = isQuiet ? 1 : 0;
+				clearQuietRun();
+				if (isFrameQuiet) startQuietRun(frameIndex);
 				state = 'settling';
 			}
 			continue;
@@ -163,41 +235,38 @@ function detectChangeEvents(frameSummaries) {
 				activeEvent.peakScore = score;
 				activeEvent.peakFrameIndex = frameIndex;
 			}
+			if (anchorDriftScore > activeEvent.peakAnchorDriftScore) {
+				activeEvent.peakAnchorDriftScore = anchorDriftScore;
+			}
 
-			if (isMotion) {
-				settlingRunStartFrameIndex = null;
-				settlingQuietCount = 0;
+			if (resumedLocalMotion) {
+				clearQuietRun();
 				state = 'in_motion';
 				continue;
 			}
 
-			if (isQuiet) {
-				if (settlingQuietCount === 0) {
-					settlingRunStartFrameIndex = frameIndex - 1;
-				}
-				settlingQuietCount += 1;
-			} else {
-				settlingQuietCount = 0;
-			}
-
-			if (settlingQuietCount >= quietFrames) {
-				const afterFrameIndex = frameIndex;
+			if (quietRunStartFrameIndex != null && quietRunLength >= quietFrames) {
+				const afterQuietSpan = buildQuietSpan(
+					frameSummaries,
+					quietThreshold,
+					quietRunStartFrameIndex,
+					frameIndex
+				);
 				events.push({
 					beforeQuietStartFrameIndex: activeEvent.beforeQuietStartFrameIndex,
 					beforeFrameIndex: activeEvent.beforeFrameIndex,
 					triggerFrameIndex: activeEvent.triggerFrameIndex,
+					triggerAnchorDriftScore: activeEvent.triggerAnchorDriftScore,
 					peakFrameIndex: activeEvent.peakFrameIndex,
-					motionEndFrameIndex: Math.max(activeEvent.triggerFrameIndex, afterFrameIndex - quietFrames),
-					afterQuietStartFrameIndex: Math.max(0, afterFrameIndex - quietFrames + 1),
-					afterFrameIndex,
-					peakScore: activeEvent.peakScore
+					motionEndFrameIndex: activeEvent.motionEndFrameIndex,
+					afterQuietStartFrameIndex: afterQuietSpan.startFrameIndex,
+					afterFrameIndex: afterQuietSpan.bestFrameIndex,
+					peakScore: activeEvent.peakScore,
+					peakAnchorDriftScore: activeEvent.peakAnchorDriftScore
 				});
-				quietAnchorFrameIndex = afterFrameIndex;
-				quietRunStartFrameIndex = Math.max(0, afterFrameIndex - quietFrames + 1);
-				quietRunLength = quietFrames;
+				confirmedQuietSpan = afterQuietSpan;
 				activeEvent = null;
-				settlingRunStartFrameIndex = null;
-				settlingQuietCount = 0;
+				clearQuietRun();
 				state = 'quiet_ready';
 			}
 		}
@@ -233,6 +302,7 @@ export async function analyzeStreamStateChanges(
 	}
 
 	const frameSummaries = [];
+	const warpedGrayFrames = [];
 	let previousWarpGray = null;
 
 	for (let frameIndex = 0; frameIndex < frameFiles.length; frameIndex += 1) {
@@ -252,6 +322,7 @@ export async function analyzeStreamStateChanges(
 			frameName: path.basename(framePath),
 			diffScore
 		});
+		warpedGrayFrames.push(warpedGray.clone());
 
 		src.delete();
 		warped.delete();
@@ -264,7 +335,15 @@ export async function analyzeStreamStateChanges(
 	localization.edges.delete();
 	localization.dilated.delete();
 
-	const detected = detectChangeEvents(frameSummaries);
+	for (let frameIndex = 0; frameIndex < frameSummaries.length; frameIndex += 1) {
+		const prevDiffScore = frameSummaries[frameIndex].diffScore;
+		const nextDiffScore = frameSummaries[frameIndex + 1]?.diffScore ?? Number.POSITIVE_INFINITY;
+		frameSummaries[frameIndex].prevDiffScore = prevDiffScore;
+		frameSummaries[frameIndex].nextDiffScore = nextDiffScore;
+		frameSummaries[frameIndex].stabilityScore = Math.max(prevDiffScore, nextDiffScore);
+	}
+
+	const detected = detectChangeEvents(frameSummaries, warpedGrayFrames);
 	const streamName = path.basename(streamDir);
 	const derivedEvents = [];
 
@@ -320,6 +399,7 @@ export async function analyzeStreamStateChanges(
 			beforeFrameName: beforeSummary.frameName,
 			triggerFrameIndex: triggerSummary.frameIndex,
 			triggerFrameName: triggerSummary.frameName,
+			triggerAnchorDriftScore: event.triggerAnchorDriftScore,
 			peakFrameIndex: peakSummary.frameIndex,
 			peakFrameName: peakSummary.frameName,
 			motionEndFrameIndex: event.motionEndFrameIndex,
@@ -328,6 +408,7 @@ export async function analyzeStreamStateChanges(
 			afterFrameIndex: afterSummary.frameIndex,
 			afterFrameName: afterSummary.frameName,
 			peakScore: event.peakScore,
+			peakAnchorDriftScore: event.peakAnchorDriftScore,
 			beforeFramePath: beforeSummary.framePath,
 			afterFramePath: afterSummary.framePath,
 			beforeRawPath,
@@ -350,6 +431,10 @@ export async function analyzeStreamStateChanges(
 		afterGray.delete();
 		triggerGray.delete();
 		peakGray.delete();
+	}
+
+	for (const warpedGray of warpedGrayFrames) {
+		warpedGray.delete();
 	}
 
 	return {
