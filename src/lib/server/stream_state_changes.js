@@ -86,71 +86,130 @@ function detectChangeEvents(frameSummaries) {
 
 	const center = median(diffScores);
 	const mad = Math.max(0.01, computeMad(diffScores, center));
-	const highThreshold = center + Math.max(4, mad * 4.5);
-	const lowThreshold = center + Math.max(2, mad * 2.25);
-	const settleFrames = 3;
+	const quietThreshold = center + Math.max(1.25, mad * 1.5);
+	const settleThreshold = center + Math.max(2.5, mad * 3);
+	const motionThreshold = center + Math.max(4.5, mad * 5.5);
+	const quietFrames = 4;
 
 	const events = [];
+	let state = 'searching_quiet';
+	let quietRunStartFrameIndex = 0;
+	let quietRunLength = 1;
+	let quietAnchorFrameIndex = 0;
 	let activeEvent = null;
-	let stableCount = 0;
+	let settlingRunStartFrameIndex = null;
+	let settlingQuietCount = 0;
 
 	for (let frameIndex = 1; frameIndex < frameSummaries.length; frameIndex += 1) {
 		const summary = frameSummaries[frameIndex];
 		const score = summary.diffScore;
+		const isQuiet = score <= quietThreshold;
+		const isMotion = score >= motionThreshold;
 
-		if (!activeEvent) {
-			if (score >= highThreshold) {
-				activeEvent = {
-					beforeFrameIndex: frameIndex - 1,
-					triggerFrameIndex: frameIndex,
-					peakFrameIndex: frameIndex,
-					peakScore: score
-				};
-				stableCount = 0;
+		if (isQuiet) {
+			if (quietRunLength === 0) {
+				quietRunStartFrameIndex = frameIndex - 1;
+			}
+			quietRunLength += 1;
+			if (quietRunLength >= quietFrames) {
+				quietAnchorFrameIndex = frameIndex;
+			}
+		} else {
+			quietRunStartFrameIndex = frameIndex;
+			quietRunLength = 0;
+		}
+
+		if (state === 'searching_quiet') {
+			if (quietRunLength >= quietFrames) {
+				state = 'quiet_ready';
 			}
 			continue;
 		}
 
-		if (score > activeEvent.peakScore) {
-			activeEvent.peakScore = score;
-			activeEvent.peakFrameIndex = frameIndex;
+		if (state === 'quiet_ready') {
+			if (isMotion) {
+				activeEvent = {
+					beforeQuietStartFrameIndex: Math.max(0, quietAnchorFrameIndex - quietFrames + 1),
+					beforeFrameIndex: quietAnchorFrameIndex,
+					triggerFrameIndex: frameIndex,
+					peakFrameIndex: frameIndex,
+					peakScore: score,
+					motionEndFrameIndex: frameIndex
+				};
+				settlingRunStartFrameIndex = null;
+				settlingQuietCount = 0;
+				state = 'in_motion';
+			}
+			continue;
 		}
 
-		if (score <= lowThreshold) {
-			stableCount += 1;
-		} else {
-			stableCount = 0;
+		if (state === 'in_motion') {
+			activeEvent.motionEndFrameIndex = frameIndex;
+			if (score > activeEvent.peakScore) {
+				activeEvent.peakScore = score;
+				activeEvent.peakFrameIndex = frameIndex;
+			}
+			if (score <= settleThreshold) {
+				settlingRunStartFrameIndex = frameIndex;
+				settlingQuietCount = isQuiet ? 1 : 0;
+				state = 'settling';
+			}
+			continue;
 		}
 
-		if (stableCount >= settleFrames) {
-			const afterFrameIndex = frameIndex;
-			events.push({
-				beforeFrameIndex: activeEvent.beforeFrameIndex,
-				triggerFrameIndex: activeEvent.triggerFrameIndex,
-				peakFrameIndex: activeEvent.peakFrameIndex,
-				afterFrameIndex,
-				peakScore: activeEvent.peakScore
-			});
-			activeEvent = null;
-			stableCount = 0;
-		}
-	}
+		if (state === 'settling') {
+			activeEvent.motionEndFrameIndex = frameIndex;
+			if (score > activeEvent.peakScore) {
+				activeEvent.peakScore = score;
+				activeEvent.peakFrameIndex = frameIndex;
+			}
 
-	if (activeEvent) {
-		events.push({
-			beforeFrameIndex: activeEvent.beforeFrameIndex,
-			triggerFrameIndex: activeEvent.triggerFrameIndex,
-			peakFrameIndex: activeEvent.peakFrameIndex,
-			afterFrameIndex: frameSummaries.length - 1,
-			peakScore: activeEvent.peakScore
-		});
+			if (isMotion) {
+				settlingRunStartFrameIndex = null;
+				settlingQuietCount = 0;
+				state = 'in_motion';
+				continue;
+			}
+
+			if (isQuiet) {
+				if (settlingQuietCount === 0) {
+					settlingRunStartFrameIndex = frameIndex - 1;
+				}
+				settlingQuietCount += 1;
+			} else {
+				settlingQuietCount = 0;
+			}
+
+			if (settlingQuietCount >= quietFrames) {
+				const afterFrameIndex = frameIndex;
+				events.push({
+					beforeQuietStartFrameIndex: activeEvent.beforeQuietStartFrameIndex,
+					beforeFrameIndex: activeEvent.beforeFrameIndex,
+					triggerFrameIndex: activeEvent.triggerFrameIndex,
+					peakFrameIndex: activeEvent.peakFrameIndex,
+					motionEndFrameIndex: Math.max(activeEvent.triggerFrameIndex, afterFrameIndex - quietFrames),
+					afterQuietStartFrameIndex: Math.max(0, afterFrameIndex - quietFrames + 1),
+					afterFrameIndex,
+					peakScore: activeEvent.peakScore
+				});
+				quietAnchorFrameIndex = afterFrameIndex;
+				quietRunStartFrameIndex = Math.max(0, afterFrameIndex - quietFrames + 1);
+				quietRunLength = quietFrames;
+				activeEvent = null;
+				settlingRunStartFrameIndex = null;
+				settlingQuietCount = 0;
+				state = 'quiet_ready';
+			}
+		}
 	}
 
 	return {
 		center,
 		mad,
-		highThreshold,
-		lowThreshold,
+		quietThreshold,
+		settleThreshold,
+		motionThreshold,
+		quietFrames,
 		events
 	};
 }
@@ -215,6 +274,7 @@ export async function analyzeStreamStateChanges(
 		const afterSummary = frameSummaries[event.afterFrameIndex];
 		const triggerSummary = frameSummaries[event.triggerFrameIndex];
 		const peakSummary = frameSummaries[event.peakFrameIndex];
+		const motionEndSummary = frameSummaries[event.motionEndFrameIndex];
 
 		const beforeSource = await loadImageAsMat(beforeSummary.framePath);
 		const afterSource = await loadImageAsMat(afterSummary.framePath);
@@ -236,36 +296,46 @@ export async function analyzeStreamStateChanges(
 		cv.cvtColor(peakWarp, peakGray, cv.COLOR_RGBA2GRAY, 0);
 
 		const outputDir = path.join(outputBaseDir, streamName);
+		const beforeRawPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-before-raw.jpg`);
+		const afterRawPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-after-raw.jpg`);
 		const beforeWarpPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-before-warp.jpg`);
 		const afterWarpPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-after-warp.jpg`);
 		const triggerDiffPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-trigger-diff.jpg`);
-		const settleDiffPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-settle-diff.jpg`);
+		const peakDiffPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-peak-diff.jpg`);
 
 		if (renderArtifacts) {
 			ensureParentDir(beforeWarpPath);
+			fs.copyFileSync(beforeSummary.framePath, beforeRawPath);
+			fs.copyFileSync(afterSummary.framePath, afterRawPath);
 			await writeMatImage(beforeWarp, beforeWarpPath);
 			await writeMatImage(afterWarp, afterWarpPath);
 			await writeMatImage(renderDiffImage(beforeGray, triggerGray), triggerDiffPath);
-			await writeMatImage(renderDiffImage(beforeGray, peakGray), settleDiffPath);
+			await writeMatImage(renderDiffImage(beforeGray, peakGray), peakDiffPath);
 		}
 
 		derivedEvents.push({
 			eventIndex: eventIndex + 1,
+			beforeQuietStartFrameIndex: event.beforeQuietStartFrameIndex,
 			beforeFrameIndex: beforeSummary.frameIndex,
 			beforeFrameName: beforeSummary.frameName,
 			triggerFrameIndex: triggerSummary.frameIndex,
 			triggerFrameName: triggerSummary.frameName,
 			peakFrameIndex: peakSummary.frameIndex,
 			peakFrameName: peakSummary.frameName,
+			motionEndFrameIndex: event.motionEndFrameIndex,
+			motionEndFrameName: motionEndSummary.frameName,
+			afterQuietStartFrameIndex: event.afterQuietStartFrameIndex,
 			afterFrameIndex: afterSummary.frameIndex,
 			afterFrameName: afterSummary.frameName,
 			peakScore: event.peakScore,
 			beforeFramePath: beforeSummary.framePath,
 			afterFramePath: afterSummary.framePath,
+			beforeRawPath,
+			afterRawPath,
 			beforeWarpPath,
 			afterWarpPath,
 			triggerDiffPath,
-			settleDiffPath
+			peakDiffPath
 		});
 
 		beforeSource.delete();
@@ -294,8 +364,12 @@ export async function analyzeStreamStateChanges(
 		thresholds: {
 			center: detected.center,
 			mad: detected.mad,
-			high: detected.highThreshold,
-			low: detected.lowThreshold
+			quiet: detected.quietThreshold,
+			settle: detected.settleThreshold,
+			motion: detected.motionThreshold
+		},
+		parameters: {
+			quietFrames: detected.quietFrames
 		},
 		events: derivedEvents,
 		frameSummaries

@@ -25,6 +25,40 @@ for (const result of results) {
 			event.beforeFrameIndex >= previousAfterFrameIndex,
 			`Expected non-overlapping, ordered events in ${result.streamName}`
 		);
+		assert.ok(
+			event.beforeQuietStartFrameIndex <= event.beforeFrameIndex,
+			`Expected before quiet window in ${result.streamName} event ${event.eventIndex}`
+		);
+		assert.ok(
+			event.afterQuietStartFrameIndex <= event.afterFrameIndex,
+			`Expected after quiet window in ${result.streamName} event ${event.eventIndex}`
+		);
+		assert.ok(
+			event.triggerFrameIndex <= event.motionEndFrameIndex,
+			`Expected motion span ordering in ${result.streamName} event ${event.eventIndex}`
+		);
+
+		for (let frameIndex = event.beforeQuietStartFrameIndex; frameIndex <= event.beforeFrameIndex; frameIndex += 1) {
+			assert.ok(
+				result.frameSummaries[frameIndex].diffScore <= result.thresholds.quiet + 1e-9,
+				`Expected quiet before window in ${result.streamName} event ${event.eventIndex}`
+			);
+		}
+
+		for (let frameIndex = event.afterQuietStartFrameIndex; frameIndex <= event.afterFrameIndex; frameIndex += 1) {
+			assert.ok(
+				result.frameSummaries[frameIndex].diffScore <= result.thresholds.quiet + 1e-9,
+				`Expected quiet after window in ${result.streamName} event ${event.eventIndex}`
+			);
+		}
+
+		const motionScores = result.frameSummaries
+			.slice(event.triggerFrameIndex, event.motionEndFrameIndex + 1)
+			.map((frame) => frame.diffScore);
+		assert.ok(
+			motionScores.some((score) => score >= result.thresholds.motion),
+			`Expected significant motion in ${result.streamName} event ${event.eventIndex}`
+		);
 		previousAfterFrameIndex = event.afterFrameIndex;
 	}
 }
