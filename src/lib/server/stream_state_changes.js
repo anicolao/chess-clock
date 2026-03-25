@@ -94,11 +94,26 @@ function renderDiffImage(previousGray, currentGray) {
 }
 
 function buildQuietSpan(frameSummaries, quietThreshold, startFrameIndex, endFrameIndex) {
+	let bestFrameIndex = startFrameIndex;
+	let bestScore = Number.POSITIVE_INFINITY;
+
+	for (let frameIndex = startFrameIndex; frameIndex <= endFrameIndex; frameIndex += 1) {
+		const summary = frameSummaries[frameIndex];
+		const candidateScore = summary?.quietScore ?? Number.POSITIVE_INFINITY;
+		if (
+			candidateScore < bestScore - 1e-9 ||
+			(Math.abs(candidateScore - bestScore) <= 1e-9 && frameIndex > bestFrameIndex)
+		) {
+			bestFrameIndex = frameIndex;
+			bestScore = candidateScore;
+		}
+	}
+
 	return {
 		startFrameIndex,
 		endFrameIndex,
-		bestFrameIndex: endFrameIndex,
-		bestScore: frameSummaries[endFrameIndex]?.quietScore ?? Number.POSITIVE_INFINITY
+		bestFrameIndex,
+		bestScore
 	};
 }
 
