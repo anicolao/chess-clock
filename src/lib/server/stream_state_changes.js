@@ -55,7 +55,7 @@ function computeMad(values, center) {
 	return median(values.map((value) => Math.abs(value - center)));
 }
 
-const DIFF_PIXEL_THRESHOLD = 3;
+const DIFF_PIXEL_THRESHOLD = 1;
 
 function computeFrameDiffMetrics(previousGray, currentGray) {
 	const diff = new cv.Mat();
