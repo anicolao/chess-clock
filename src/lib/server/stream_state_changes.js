@@ -55,7 +55,7 @@ function computeMad(values, center) {
 	return median(values.map((value) => Math.abs(value - center)));
 }
 
-const DIFF_PIXEL_THRESHOLD = 1;
+const DIFF_PIXEL_THRESHOLD = 2;
 
 function computeFrameDiffMetrics(previousGray, currentGray) {
 	const diff = new cv.Mat();
@@ -224,6 +224,7 @@ function detectChangeEvents(frameSummaries, warpedGrayFrames) {
 		settleThreshold,
 		motionThreshold,
 		quietFrames,
+		quietSpans,
 		events
 	};
 }
@@ -294,6 +295,44 @@ export async function analyzeStreamStateChanges(
 	const detected = detectChangeEvents(frameSummaries, warpedGrayFrames);
 	const streamName = path.basename(streamDir);
 	const derivedEvents = [];
+	const outputDir = path.join(outputBaseDir, streamName);
+
+	if (renderArtifacts) {
+		for (let frameIndex = 1; frameIndex < frameSummaries.length; frameIndex += 1) {
+			const summary = frameSummaries[frameIndex];
+			if (summary.diffScore > detected.quietThreshold) continue;
+
+			const beforeSummary = frameSummaries[frameIndex - 1];
+			const beforeRawPath = path.join(
+				outputDir,
+				`pair-${String(frameIndex).padStart(3, '0')}-before-raw.jpg`
+			);
+			const afterRawPath = path.join(
+				outputDir,
+				`pair-${String(frameIndex).padStart(3, '0')}-after-raw.jpg`
+			);
+			const diffPath = path.join(
+				outputDir,
+				`pair-${String(frameIndex).padStart(3, '0')}-diff.jpg`
+			);
+
+			ensureParentDir(diffPath);
+			fs.copyFileSync(beforeSummary.framePath, beforeRawPath);
+			fs.copyFileSync(summary.framePath, afterRawPath);
+			const pairDiffImage = renderDiffImage(
+				warpedGrayFrames[frameIndex - 1],
+				warpedGrayFrames[frameIndex]
+			);
+			await writeMatImage(pairDiffImage, diffPath);
+			pairDiffImage.delete();
+
+			summary.pairArtifacts = {
+				beforeRawPath,
+				afterRawPath,
+				diffPath
+			};
+		}
+	}
 
 	for (let eventIndex = 0; eventIndex < detected.events.length; eventIndex += 1) {
 		const event = detected.events[eventIndex];
@@ -322,7 +361,6 @@ export async function analyzeStreamStateChanges(
 		cv.cvtColor(triggerWarp, triggerGray, cv.COLOR_RGBA2GRAY, 0);
 		cv.cvtColor(peakWarp, peakGray, cv.COLOR_RGBA2GRAY, 0);
 
-		const outputDir = path.join(outputBaseDir, streamName);
 		const beforeRawPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-before-raw.jpg`);
 		const afterRawPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-after-raw.jpg`);
 		const beforeWarpPath = path.join(outputDir, `event-${String(eventIndex + 1).padStart(2, '0')}-before-warp.jpg`);
@@ -404,6 +442,7 @@ export async function analyzeStreamStateChanges(
 		parameters: {
 			quietFrames: detected.quietFrames
 		},
+		quietSpans: detected.quietSpans,
 		events: derivedEvents,
 		frameSummaries
 	};
