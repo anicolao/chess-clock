@@ -41,14 +41,14 @@ for (const result of results) {
 
 		for (let frameIndex = event.beforeQuietStartFrameIndex; frameIndex <= event.beforeFrameIndex; frameIndex += 1) {
 			assert.ok(
-				result.frameSummaries[frameIndex].stabilityScore <= result.thresholds.quiet + 1e-9,
+				result.frameSummaries[frameIndex].quietScore <= result.thresholds.quiet + 1e-9,
 				`Expected quiet before window in ${result.streamName} event ${event.eventIndex}`
 			);
 		}
 
 		for (let frameIndex = event.afterQuietStartFrameIndex; frameIndex <= event.afterFrameIndex; frameIndex += 1) {
 			assert.ok(
-				result.frameSummaries[frameIndex].stabilityScore <= result.thresholds.quiet + 1e-9,
+				result.frameSummaries[frameIndex].quietScore <= result.thresholds.quiet + 1e-9,
 				`Expected quiet after window in ${result.streamName} event ${event.eventIndex}`
 			);
 		}

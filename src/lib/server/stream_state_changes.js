@@ -85,9 +85,9 @@ function buildQuietSpan(frameSummaries, quietThreshold, startFrameIndex, endFram
 
 	for (let frameIndex = startFrameIndex; frameIndex <= endFrameIndex; frameIndex += 1) {
 		const summary = frameSummaries[frameIndex];
-		const stabilityScore = summary.stabilityScore;
-		const qualifies = Number.isFinite(stabilityScore) && stabilityScore <= quietThreshold;
-		const candidateScore = qualifies ? stabilityScore : Number.POSITIVE_INFINITY;
+		const quietScore = summary.quietScore;
+		const qualifies = Number.isFinite(quietScore) && quietScore <= quietThreshold;
+		const candidateScore = qualifies ? quietScore : Number.POSITIVE_INFINITY;
 
 		if (
 			candidateScore < bestScore - 1e-9 ||
@@ -100,7 +100,7 @@ function buildQuietSpan(frameSummaries, quietThreshold, startFrameIndex, endFram
 
 	if (!Number.isFinite(bestScore)) {
 		bestFrameIndex = endFrameIndex;
-		bestScore = frameSummaries[endFrameIndex]?.stabilityScore ?? Number.POSITIVE_INFINITY;
+		bestScore = frameSummaries[endFrameIndex]?.quietScore ?? Number.POSITIVE_INFINITY;
 	}
 
 	return {
@@ -161,7 +161,7 @@ function detectChangeEvents(frameSummaries, warpedGrayFrames) {
 	for (let frameIndex = 1; frameIndex < frameSummaries.length; frameIndex += 1) {
 		const summary = frameSummaries[frameIndex];
 		const score = summary.diffScore;
-		const isFrameQuiet = summary.stabilityScore <= quietThreshold;
+		const isFrameQuiet = summary.quietScore <= quietThreshold;
 		if (isFrameQuiet) {
 			if (quietRunStartFrameIndex == null) startQuietRun(frameIndex);
 			else extendQuietRun();
@@ -184,7 +184,7 @@ function detectChangeEvents(frameSummaries, warpedGrayFrames) {
 		);
 		const resumedLocalMotion = (
 			score >= motionThreshold ||
-			summary.stabilityScore >= motionThreshold
+			summary.quietScore >= motionThreshold
 		);
 
 		if (state === 'searching_quiet') {
@@ -340,7 +340,9 @@ export async function analyzeStreamStateChanges(
 		const nextDiffScore = frameSummaries[frameIndex + 1]?.diffScore ?? Number.POSITIVE_INFINITY;
 		frameSummaries[frameIndex].prevDiffScore = prevDiffScore;
 		frameSummaries[frameIndex].nextDiffScore = nextDiffScore;
+		// Keep both scores: bilateral stability for observability, one-sided quiet score for selection.
 		frameSummaries[frameIndex].stabilityScore = Math.max(prevDiffScore, nextDiffScore);
+		frameSummaries[frameIndex].quietScore = Math.min(prevDiffScore, nextDiffScore);
 	}
 
 	const detected = detectChangeEvents(frameSummaries, warpedGrayFrames);
