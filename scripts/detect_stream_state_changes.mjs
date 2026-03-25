@@ -17,8 +17,9 @@ async function main() {
 
 	let markdown = '# Stream State Change Report\n\n';
 	markdown += 'Each section shows the quiescent board frames selected for further analysis from the raw ESP32 camera stream. ';
-	markdown += 'The detector localizes the board once, warps every frame, computes frame-to-frame board deltas, and selects a `quiet -> motion -> quiet` transition window before any occupancy analysis. ';
-	markdown += 'In this version, a frame is treated as quiescent if it closely matches either its previous or next neighbor.\n\n';
+	markdown += 'The detector localizes the board once, warps every frame, computes frame-to-frame board deltas, and groups the stream into quiet runs only. ';
+	markdown += 'Every run of at least one quiet pair becomes a quiescent segment, and consecutive segments define the brackets for later analysis. ';
+	markdown += 'There is no additional motion acceptance criterion in this phase.\n\n';
 
 	for (const result of results) {
 		markdown += `## ${result.streamName}\n\n`;
