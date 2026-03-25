@@ -440,6 +440,7 @@ export async function analyzeStreamStateChanges(
 			motion: detected.motionThreshold
 		},
 		parameters: {
+			diffPixelThreshold: DIFF_PIXEL_THRESHOLD,
 			quietFrames: detected.quietFrames
 		},
 		quietSpans: detected.quietSpans,

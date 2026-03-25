@@ -16,9 +16,10 @@ async function main() {
 	const results = await analyzeAllStreamStateChanges();
 
 	let markdown = '# Stream State Change Report\n\n';
-	markdown += 'Each section shows adjacent-frame scores for the raw ESP32 camera stream. ';
-	markdown += 'Quiet runs are formed from adjacent pairs whose `diffScore` is below the stream-specific quiet threshold, and the representative frame for each quiet run is the local minimum `quietScore` inside that run. ';
-	markdown += 'Only quiet pairs include inline images so the report stays focused on the comparable frames.\n\n';
+	markdown += 'Each section shows the full adjacent-frame score table for one raw ESP32 camera stream. ';
+	markdown += 'A quiet run is any consecutive sequence of pairs whose `diffScore` stays below the stream-specific quiet threshold. ';
+	markdown += 'The chosen bracket frame for a quiet run is the local minimum `quietScore` inside that run. ';
+	markdown += 'Inline images are shown only for quiet pairs so the report stays focused on the comparable candidate blocks.\n\n';
 
 	for (const result of results) {
 		const quietSpanByFrame = new Map();
@@ -38,15 +39,18 @@ async function main() {
 		}
 
 		markdown += `## ${result.streamName}\n\n`;
-		markdown += `- Frames: ${result.frameCount}\n`;
-		markdown += `- Localization: score=${result.localization.score.toFixed(1)}, candidates=${result.localization.candidateCount}, selected=${result.localization.selectedCount}\n`;
-		markdown += `- Thresholds (% changed board pixels): center=${result.thresholds.center.toFixed(2)}, mad=${result.thresholds.mad.toFixed(2)}, quiet=${result.thresholds.quiet.toFixed(2)}, settle=${result.thresholds.settle.toFixed(2)}, motion=${result.thresholds.motion.toFixed(2)}\n`;
-		markdown += `- Quiet window: ${result.parameters.quietFrames} frames\n`;
-		markdown += `- Quiet runs: ${result.quietSpans.length}\n`;
-		markdown += `- Detected transition windows: ${result.events.length}\n\n`;
+		markdown += '| Metric | Value |\n';
+		markdown += '|---|---|\n';
+		markdown += `| Frames | ${result.frameCount} |\n`;
+		markdown += `| Localization | score=${result.localization.score.toFixed(1)}, candidates=${result.localization.candidateCount}, selected=${result.localization.selectedCount} |\n`;
+		markdown += `| Thresholds (% changed board pixels) | center=${result.thresholds.center.toFixed(2)}, mad=${result.thresholds.mad.toFixed(2)}, quiet=${result.thresholds.quiet.toFixed(2)}, settle=${result.thresholds.settle.toFixed(2)}, motion=${result.thresholds.motion.toFixed(2)} |\n`;
+		markdown += `| Pixel diff cutoff | ${result.parameters.diffPixelThreshold} |\n`;
+		markdown += `| Quiet window | ${result.parameters.quietFrames} frames |\n`;
+		markdown += `| Quiet runs | ${result.quietSpans.length} |\n`;
+		markdown += `| Detected transition windows | ${result.events.length} |\n\n`;
 
-		markdown += '| Pair | diffScore | meanDiff | quietScore | quiet? | quiet run | chosen frame | event role | before | after | diff |\n';
-		markdown += '|---|---:|---:|---:|---|---|---|---|---|---|---|\n';
+		markdown += '| Pair | diffScore | meanDiff | quietThreshold | quietScore | quiet? | quiet run | chosen frame | event role | before | after | diff |\n';
+		markdown += '|---|---:|---:|---:|---:|---|---|---|---|---|---|---|\n';
 
 		for (let frameIndex = 1; frameIndex < result.frameSummaries.length; frameIndex += 1) {
 			const summary = result.frameSummaries[frameIndex];
@@ -60,17 +64,20 @@ async function main() {
 				? `frame-${String(frameIndex).padStart(6, '0')}`
 				: '';
 			const eventRole = eventRoleByFrame.get(frameIndex) ?? '';
-			const beforeImage = quiet && summary.pairArtifacts
-				? `![](${toPosixPath(path.relative('tests', summary.pairArtifacts.beforeRawPath))})`
-				: '';
 			const afterImage = quiet && summary.pairArtifacts
 				? `![](${toPosixPath(path.relative('tests', summary.pairArtifacts.afterRawPath))})`
-				: '';
+				: '-';
 			const diffImage = quiet && summary.pairArtifacts
 				? `![](${toPosixPath(path.relative('tests', summary.pairArtifacts.diffPath))})`
-				: '';
+				: '-';
+			const beforeCell = quiet && summary.pairArtifacts
+				? `![](${toPosixPath(path.relative('tests', summary.pairArtifacts.beforeRawPath))})`
+				: '-';
+			const chosenCell = chosenFrameLabel || '-';
+			const roleCell = eventRole || '-';
+			const quietRunCell = quietRunLabel || '-';
 
-			markdown += `| ${pairLabel} | ${summary.diffScore.toFixed(2)} | ${summary.meanDiffScore.toFixed(2)} | ${summary.quietScore.toFixed(2)} | ${quiet ? 'yes' : 'no'} | ${quietRunLabel} | ${chosenFrameLabel} | ${eventRole} | ${beforeImage} | ${afterImage} | ${diffImage} |\n`;
+			markdown += `| ${pairLabel} | ${summary.diffScore.toFixed(2)} | ${summary.meanDiffScore.toFixed(2)} | ${result.thresholds.quiet.toFixed(2)} | ${summary.quietScore.toFixed(2)} | ${quiet ? 'yes' : 'no'} | ${quietRunCell} | ${chosenCell} | ${roleCell} | ${beforeCell} | ${afterImage} | ${diffImage} |\n`;
 		}
 
 		markdown += '\n';
