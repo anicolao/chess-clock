@@ -55,16 +55,30 @@ function computeMad(values, center) {
 	return median(values.map((value) => Math.abs(value - center)));
 }
 
-function computeFrameDiffScore(previousGray, currentGray) {
+const DIFF_PIXEL_THRESHOLD = 12;
+
+function computeFrameDiffMetrics(previousGray, currentGray) {
 	const diff = new cv.Mat();
 	cv.absdiff(previousGray, currentGray, diff);
 	const blurred = new cv.Mat();
 	cv.GaussianBlur(diff, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
 	const meanScalar = cv.mean(blurred);
-	const score = meanScalar[0];
+	const thresholded = new cv.Mat();
+	cv.threshold(diff, thresholded, DIFF_PIXEL_THRESHOLD, 255, cv.THRESH_BINARY);
+	const changedPixels = cv.countNonZero(thresholded);
+	const changedFraction = changedPixels / (thresholded.rows * thresholded.cols);
 	diff.delete();
 	blurred.delete();
-	return score;
+	thresholded.delete();
+	return {
+		meanScore: meanScalar[0],
+		changedFraction,
+		changedPercent: changedFraction * 100
+	};
+}
+
+function computeFrameDiffScore(previousGray, currentGray) {
+	return computeFrameDiffMetrics(previousGray, currentGray).changedPercent;
 }
 
 function renderDiffImage(previousGray, currentGray) {
@@ -228,15 +242,16 @@ export async function analyzeStreamStateChanges(
 		const warpedGray = new cv.Mat();
 		cv.cvtColor(warped, warpedGray, cv.COLOR_RGBA2GRAY, 0);
 
-		const diffScore = previousWarpGray
-			? computeFrameDiffScore(previousWarpGray, warpedGray)
-			: 0;
+		const diffMetrics = previousWarpGray
+			? computeFrameDiffMetrics(previousWarpGray, warpedGray)
+			: { changedPercent: 0, meanScore: 0 };
 
 		frameSummaries.push({
 			frameIndex,
 			framePath,
 			frameName: path.basename(framePath),
-			diffScore
+			diffScore: diffMetrics.changedPercent,
+			meanDiffScore: diffMetrics.meanScore
 		});
 		warpedGrayFrames.push(warpedGray.clone());
 

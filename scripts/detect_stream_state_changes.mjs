@@ -19,13 +19,14 @@ async function main() {
 	markdown += 'Each section shows the quiescent board frames selected for further analysis from the raw ESP32 camera stream. ';
 	markdown += 'The detector localizes the board once, warps every frame, computes frame-to-frame board deltas, and groups the stream into quiet runs only. ';
 	markdown += 'Every run of at least one quiet pair becomes a quiescent segment, and consecutive segments define the brackets for later analysis. ';
+	markdown += 'A pair is considered quiet when only a small percentage of warped board pixels change between adjacent frames. ';
 	markdown += 'There is no additional motion acceptance criterion in this phase.\n\n';
 
 	for (const result of results) {
 		markdown += `## ${result.streamName}\n\n`;
 		markdown += `- Frames: ${result.frameCount}\n`;
 		markdown += `- Localization: score=${result.localization.score.toFixed(1)}, candidates=${result.localization.candidateCount}, selected=${result.localization.selectedCount}\n`;
-		markdown += `- Thresholds: center=${result.thresholds.center.toFixed(2)}, mad=${result.thresholds.mad.toFixed(2)}, quiet=${result.thresholds.quiet.toFixed(2)}, settle=${result.thresholds.settle.toFixed(2)}, motion=${result.thresholds.motion.toFixed(2)}\n`;
+		markdown += `- Thresholds (% changed board pixels): center=${result.thresholds.center.toFixed(2)}, mad=${result.thresholds.mad.toFixed(2)}, quiet=${result.thresholds.quiet.toFixed(2)}, settle=${result.thresholds.settle.toFixed(2)}, motion=${result.thresholds.motion.toFixed(2)}\n`;
 		markdown += `- Quiet window: ${result.parameters.quietFrames} frames\n`;
 		markdown += `- Detected transition windows: ${result.events.length}\n\n`;
 		markdown += '| Event | Before Quiet Raw | Before Quiet Warp | After Quiet Raw | After Quiet Warp | Trigger Diff | Peak Diff | Selected Frames |\n';
