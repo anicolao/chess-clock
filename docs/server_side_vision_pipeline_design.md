@@ -92,9 +92,66 @@ For each sampled frame:
 1. decode JPEG to an image matrix
 2. localize the board from calibration or re-run localization when required
 3. warp to top-down board view
-4. compute occupancy and piece color
-5. feed the structured result into the move-completion engine
-6. emit zero or more server events
+4. compute a frame-to-frame board-delta score in warped space
+5. feed that score into a quiescent-frame selection state machine
+6. only when the state machine emits a quiescent state pair, run occupancy and piece-color analysis on those selected frames
+7. feed the structured result into the move-completion engine
+8. emit zero or more server events
+
+### 6.3 Quiescent-Frame Selection
+Before occupancy or move reasoning, the server needs a cheap temporal gate that chooses which frames are worth deeper analysis.
+
+The goal of this phase is:
+- identify a stable `before` board state
+- identify a burst of meaningful motion after that state
+- identify a stable `after` board state once motion ends
+- hand only the two quiescent states, plus the motion span metadata, to later occupancy and move logic
+
+The output of this phase is not a move. It is a candidate transition window:
+
+```json
+{
+  "beforeQuietFrame": 301,
+  "beforeQuietWindow": [298, 301],
+  "motionStartFrame": 302,
+  "motionPeakFrame": 312,
+  "motionEndFrame": 323,
+  "afterQuietWindow": [324, 327],
+  "afterQuietFrame": 327
+}
+```
+
+This keeps the pipeline honest:
+- temporal gating decides when the board is quiet enough to inspect
+- occupancy decides what changed between the two quiet states
+- move logic decides whether that change should be accepted as a move
+
+### 6.4 Quiescent-Frame State Machine
+The server should explicitly model the pre-analysis gate as a state machine, separate from the later move-commit state machine.
+
+Recommended states:
+- `searching_quiet`
+- `quiet_ready`
+- `in_motion`
+- `settling`
+
+Recommended behavior:
+- `searching_quiet`
+  Wait for `quietFrames` consecutive low-delta warped-board frames. Once found, promote the newest frame in that window to the current `beforeQuietFrame`.
+- `quiet_ready`
+  Continue updating the current quiet anchor while the board remains quiet. If the delta exceeds the motion threshold, freeze the last quiet anchor as `beforeQuietFrame` and enter `in_motion`.
+- `in_motion`
+  Track the motion span and peak-delta frame while significant board differences continue.
+- `settling`
+  Motion has dropped, but the board is not yet proven quiet. Require a fresh run of `quietFrames` consecutive low-delta frames before accepting the `afterQuietFrame`. If motion spikes again, fall back to `in_motion`.
+
+Initial tuning for this phase:
+- compute deltas in warped grayscale board space
+- derive `quietThreshold`, `settleThreshold`, and `motionThreshold` from the stream's median and MAD
+- require at least `4` consecutive quiet frames to accept a quiescent window
+- require at least `1` frame above `motionThreshold` for a transition window to be valid
+
+This phase must prefer correctness over eagerness. It is better to merge two adjacent noisy bursts into one wider motion span than to pick a non-quiescent `before` or `after` frame that poisons downstream occupancy analysis.
 
 ## 7. Calibration Model
 
@@ -167,6 +224,26 @@ Each analyzed frame should produce a structured result like:
 }
 ```
 
+In addition, the temporal gate should emit a structured transition-window record whenever it finds a quiet-motion-quiet pattern:
+
+```json
+{
+  "eventType": "vision/transitionWindowDetected",
+  "beforeQuietFrame": 301,
+  "beforeQuietWindow": [298, 301],
+  "motionStartFrame": 302,
+  "motionPeakFrame": 312,
+  "motionEndFrame": 323,
+  "afterQuietWindow": [324, 327],
+  "afterQuietFrame": 327,
+  "thresholds": {
+    "quiet": 4.61,
+    "settle": 6.61,
+    "motion": 10.21
+  }
+}
+```
+
 ### 8.3 Board Re-Localization Policy
 Board localization is expensive. We should not run full contour search on every frame once calibration is stable.
 
@@ -182,6 +259,10 @@ Recommended policy:
 
 ### 9.1 Authoritative Server State Machine
 The server owns the move-completion engine. The browser no longer decides when a move settled.
+
+Important distinction:
+- the quiescent-frame selector described in section `6.4` decides which frames should be analyzed further
+- the move-completion engine described here decides whether the change between those selected quiet states should be accepted as a move
 
 Recommended states:
 - `uncalibrated`
