@@ -1,0 +1,12 @@
+$ ~/projects/disk/verify-tm.sh chess-clock
+Latest completed backup: /Volumes/.timemachine/28C7A736-5F20-4ED7-91AD-40491F255B8F/2026-10-20-065916.backup/2026-10-20-065916.backup
+Live:   /Volumes/Macintosh HD/Users/anicolao/projects/antigravity/chess-clock
+Backup: /Volumes/.timemachine/28C7A736-5F20-4ED7-91AD-40491F255B8F/2026-10-20-065916.backup/2026-10-20-065916.backup/Data/Users/anicolao/projects/antigravity/chess-clock
+Keep the live directory idle until verification finishes.
+[backup] done: 28919 files, 3.07GiB, 916.4s
+[live] done: 28919 files, 3.07GiB, 10.9s
+Wrote: /Volumes/Macintosh HD/Users/anicolao/projects/antigravity/chess-clock.backup.md5s
+Wrote: /Volumes/Macintosh HD/Users/anicolao/projects/antigravity/chess-clock.live.md5s
+MATCH: 28919 regular files; directory layout and symlink targets also match.
+Metadata, resource forks and hard-link relationships were not compared.
+No deletion performed.
